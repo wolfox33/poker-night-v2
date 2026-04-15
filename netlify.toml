@@ -1,11 +1,13 @@
 [build]
   command = "npm run build"
-  publish = ".next/standalone"
-  functions = ".next/server"
+  publish = ".next"
 
 [dev]
   command = "npm run dev"
   port = 3000
+
+[functions]
+  directory = ".next"
 
 [[headers]]
   for = "/api/*"
