@@ -1,6 +1,7 @@
 [build]
   command = "npm run build"
-  publish = ".next"
+  publish = ".next/standalone"
+  functions = ".next/server"
 
 [dev]
   command = "npm run dev"
