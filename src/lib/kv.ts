@@ -1,3 +1,5 @@
+import { Redis } from '@upstash/redis';
+
 const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
 const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 
@@ -15,24 +17,17 @@ function getClient(): KVClient {
     console.warn('Redis credentials not configured, using in-memory fallback');
     return createMemoryClient();
   }
-  return createUpstashClient();
-}
 
-function createUpstashClient(): KVClient {
-  const headers = {
-    Authorization: `Bearer ${UPSTASH_TOKEN}`,
-    'Content-Type': 'application/json',
-  };
+  const redis = new Redis({
+    url: UPSTASH_URL,
+    token: UPSTASH_TOKEN,
+  });
 
   return {
     async get(key: string): Promise<string | null> {
       try {
-        const url = `${UPSTASH_URL}/get/${encodeURIComponent(key)}`;
-        console.log('GET:', url);
-        const res = await fetch(url, { headers });
-        const data = await res.json();
-        console.log('GET result:', data);
-        return data.result || null;
+        const result = await redis.get(key);
+        return result as string | null;
       } catch (error) {
         console.error('Upstash GET error:', error);
         return null;
@@ -41,16 +36,11 @@ function createUpstashClient(): KVClient {
 
     async set(key: string, value: string, ttl?: number): Promise<void> {
       try {
-        const url = `${UPSTASH_URL}/set/${encodeURIComponent(key)}`;
-        console.log('SET:', url, 'ttl:', ttl);
-        const body = ttl ? { value, ex: ttl } : { value };
-        const res = await fetch(url, {
-          method: 'POST',
-          headers,
-          body: JSON.stringify(body),
-        });
-        const data = await res.json();
-        console.log('SET result:', data);
+        if (ttl) {
+          await redis.set(key, value, { ex: ttl });
+        } else {
+          await redis.set(key, value);
+        }
       } catch (error) {
         console.error('Upstash SET error:', error);
       }
@@ -58,10 +48,7 @@ function createUpstashClient(): KVClient {
 
     async delete(key: string): Promise<void> {
       try {
-        await fetch(`${UPSTASH_URL}/del/${encodeURIComponent(key)}`, {
-          method: 'POST',
-          headers,
-        });
+        await redis.del(key);
       } catch (error) {
         console.error('Upstash DEL error:', error);
       }
