@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Let Netlify handle Next.js automatically
+  output: 'standalone',
 };
 
 export default nextConfig;

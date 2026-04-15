@@ -6,8 +6,10 @@
   command = "npm run dev"
   port = 3000
 
-[functions]
-  directory = ".next"
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
+  [plugins.inputs]
+    mode = "standalone"
 
 [[headers]]
   for = "/api/*"
