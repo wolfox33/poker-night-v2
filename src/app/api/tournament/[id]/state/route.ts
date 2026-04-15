@@ -8,10 +8,14 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
+    console.log('GET state for tournament:', id);
+    
     const authHeader = request.headers.get('authorization');
     const token = authHeader?.replace('Bearer ', '');
 
     const data = await getTournament(id);
+    console.log('Tournament data:', data ? 'found' : 'not found');
+    
     if (!data) {
       return NextResponse.json(
         { error: 'Tournament not found' },
@@ -42,7 +46,7 @@ export async function GET(
   } catch (error) {
     console.error('Get tournament state error:', error);
     return NextResponse.json(
-      { error: 'Failed to get tournament state' },
+      { error: 'Failed to get tournament state', details: String(error) },
       { status: 500 }
     );
   }
