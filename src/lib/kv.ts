@@ -12,15 +12,10 @@ export interface KVClient {
   delete(key: string): Promise<void>;
 }
 
-function getClient(): KVClient {
-  if (!UPSTASH_URL || !UPSTASH_TOKEN) {
-    console.warn('Redis credentials not configured, using in-memory fallback');
-    return createMemoryClient();
-  }
-
+function createUpstashClient(): KVClient {
   const redis = new Redis({
-    url: UPSTASH_URL,
-    token: UPSTASH_TOKEN,
+    url: UPSTASH_URL!,
+    token: UPSTASH_TOKEN!,
   });
 
   return {
@@ -81,6 +76,14 @@ function createMemoryClient(): KVClient {
       memoryStore.delete(key);
     },
   };
+}
+
+export function getClient(): KVClient {
+  if (!UPSTASH_URL || !UPSTASH_TOKEN) {
+    console.warn('Redis credentials not configured, using in-memory fallback');
+    return createMemoryClient();
+  }
+  return createUpstashClient();
 }
 
 export const kv = getClient();
