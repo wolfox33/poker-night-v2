@@ -1,8 +1,8 @@
 const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
 const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
 
-console.log('UPSTASH_URL configured:', !!UPSTASH_URL);
-console.log('UPSTASH_TOKEN configured:', !!UPSTASH_TOKEN);
+console.log('UPSTASH_URL:', UPSTASH_URL?.substring(0, 20) + '...');
+console.log('UPSTASH_TOKEN set:', !!UPSTASH_TOKEN);
 
 export interface KVClient {
   get(key: string): Promise<string | null>;
@@ -27,8 +27,11 @@ function createUpstashClient(): KVClient {
   return {
     async get(key: string): Promise<string | null> {
       try {
-        const res = await fetch(`${UPSTASH_URL}/get/${encodeURIComponent(key)}`, { headers });
+        const url = `${UPSTASH_URL}/get/${encodeURIComponent(key)}`;
+        console.log('GET:', url);
+        const res = await fetch(url, { headers });
         const data = await res.json();
+        console.log('GET result:', data);
         return data.result || null;
       } catch (error) {
         console.error('Upstash GET error:', error);
@@ -38,13 +41,16 @@ function createUpstashClient(): KVClient {
 
     async set(key: string, value: string, ttl?: number): Promise<void> {
       try {
-        // Use POST to send value in body (better for JSON values)
+        const url = `${UPSTASH_URL}/set/${encodeURIComponent(key)}`;
+        console.log('SET:', url, 'ttl:', ttl);
         const body = ttl ? { value, ex: ttl } : { value };
-        await fetch(`${UPSTASH_URL}/set/${encodeURIComponent(key)}`, {
+        const res = await fetch(url, {
           method: 'POST',
           headers,
           body: JSON.stringify(body),
         });
+        const data = await res.json();
+        console.log('SET result:', data);
       } catch (error) {
         console.error('Upstash SET error:', error);
       }

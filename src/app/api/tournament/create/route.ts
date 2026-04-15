@@ -14,6 +14,8 @@ const generateCode = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', 6);
 
 export async function POST(request: NextRequest) {
   try {
+    console.log('Creating tournament...');
+    
     let config: Partial<TournamentConfig> = {};
     
     try {
@@ -26,6 +28,8 @@ export async function POST(request: NextRequest) {
     const id = `poker-${generateId()}`;
     const code = generateCode();
     const hostToken = generateId();
+
+    console.log('Generated:', { id, code, hostToken });
 
     const tournament: Tournament = {
       id,
@@ -40,8 +44,11 @@ export async function POST(request: NextRequest) {
       extras: [],
     };
 
+    console.log('Saving tournament...');
     await setTournament(id, JSON.stringify(tournament));
+    console.log('Saving code mapping...');
     await setTournamentCode(code, id);
+    console.log('Done!');
 
     return NextResponse.json({
       id,
@@ -52,7 +59,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Create tournament error:', error);
     return NextResponse.json(
-      { error: 'Failed to create tournament' },
+      { error: 'Failed to create tournament', details: String(error) },
       { status: 500 }
     );
   }
