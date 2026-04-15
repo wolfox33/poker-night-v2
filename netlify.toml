@@ -1,14 +1,13 @@
 [build]
   command = "npm run build"
-  publish = ".next/standalone"
-  functions = ".next/server"
+  publish = ".next/server/app"
 
 [dev]
   command = "npm run dev"
   port = 3000
 
-[[plugins]]
-  package = "@netlify/plugin-nextjs"
+[functions]
+  directory = ".next/server"
 
 [[headers]]
   for = "/api/*"
