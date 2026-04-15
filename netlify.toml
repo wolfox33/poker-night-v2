@@ -8,8 +8,6 @@
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
-  [plugins.inputs]
-    mode = "standalone"
 
 [[headers]]
   for = "/api/*"
