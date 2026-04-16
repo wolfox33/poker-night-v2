@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useTournament } from '@/hooks/useTournament';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import { BLINDS_LEVELS } from '@/types/tournament';
@@ -80,6 +80,56 @@ export default function TournamentPage() {
     }
   }, [isLoading, tournament, error, router]);
 
+  // Request notification permission when timer starts
+  useEffect(() => {
+    if (tournament?.timer?.isRunning && typeof window !== 'undefined' && 'Notification' in window) {
+      if (Notification.permission === 'default') {
+        Notification.requestPermission();
+      }
+    }
+  }, [tournament?.timer?.isRunning]);
+
+  // Play beep sound (9 beeps: 3 sequences of 3)
+  const playBeep = useCallback(() => {
+    try {
+      const AudioCtx = (window as unknown as { AudioContext: typeof AudioContext; webkitAudioContext: typeof AudioContext }).AudioContext
+        || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      if (!AudioCtx) return;
+      const audioCtx = new AudioCtx();
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+      const beep = () => {
+        const osc = audioCtx.createOscillator();
+        const gain = audioCtx.createGain();
+        osc.connect(gain);
+        gain.connect(audioCtx.destination);
+        osc.frequency.value = 880;
+        gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+        osc.start(audioCtx.currentTime);
+        osc.stop(audioCtx.currentTime + 0.1);
+      };
+      for (let seq = 0; seq < 3; seq++) {
+        for (let i = 0; i < 3; i++) {
+          setTimeout(beep, seq * 1000 + i * 250);
+        }
+      }
+    } catch {}
+  }, []);
+
+  // Show notification
+  const showNotification = useCallback((title: string, body: string) => {
+    if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+      try {
+        new Notification(title, { body, icon: '/icon-192.svg', badge: '/icon-192.svg' });
+      } catch {}
+    }
+  }, []);
+
+  // Track previous level for change detection
+  const prevLevelRef = useRef(tournament?.timer?.currentLevel ?? 1);
+
   // Interpolate timer display client-side every 200ms
   useEffect(() => {
     const timer = tournament?.timer;
@@ -89,9 +139,24 @@ export default function TournamentPage() {
     }
     if (!timer.isRunning || !timer.startedAt) {
       setLocalTime(timer.timeRemaining);
+      prevLevelRef.current = timer.currentLevel;
       return;
     }
-    const { startedAt, timeRemaining } = timer;
+    const { startedAt, timeRemaining, currentLevel } = timer;
+
+    // Detect level change and play sound + notification
+    if (currentLevel !== prevLevelRef.current) {
+      playBeep();
+      const blinds = BLINDS_LEVELS[currentLevel - 1];
+      if (blinds) {
+        showNotification(
+          `Poker Night - Nível ${currentLevel}`,
+          `Blind: ${blinds.smallBlind}/${blinds.bigBlind}`
+        );
+      }
+      prevLevelRef.current = currentLevel;
+    }
+
     const tick = () => {
       const elapsed = Math.floor((Date.now() - startedAt) / 1000);
       setLocalTime(Math.max(0, timeRemaining - elapsed));
@@ -99,7 +164,7 @@ export default function TournamentPage() {
     tick();
     const id = setInterval(tick, 200);
     return () => clearInterval(id);
-  }, [tournament?.timer?.isRunning, tournament?.timer?.startedAt, tournament?.timer?.timeRemaining]);
+  }, [tournament?.timer?.isRunning, tournament?.timer?.startedAt, tournament?.timer?.timeRemaining, tournament?.timer?.currentLevel, playBeep, showNotification]);
 
   // ── Derived values & memos (MUST be before any conditional return) ──
 
@@ -461,8 +526,16 @@ export default function TournamentPage() {
                 ) : (
                   <button onClick={() => timerAction('pause')} className="btn btn-secondary flex-1">⏸ Pausar</button>
                 )}
-                <button onClick={() => timerAction('skip')} disabled={tournament.timer.currentLevel >= 27} className="btn btn-secondary flex-1">→ Próx. Nível</button>
-                <button onClick={() => timerAction('reset')} className="btn btn-danger">↺</button>
+                <button onClick={() => {
+                  const nextLevel = tournament.timer.currentLevel + 1;
+                  timerAction('skip');
+                  playBeep();
+                  const blinds = BLINDS_LEVELS[nextLevel - 1];
+                  if (blinds) {
+                    showNotification(`Poker Night - Nível ${nextLevel}`, `Blind: ${blinds.smallBlind}/${blinds.bigBlind}`);
+                  }
+                }} disabled={tournament.timer.currentLevel >= 27} className="btn btn-secondary flex-1">→ Próx. Nível</button>
+                <button onClick={() => { if (confirm('Tem certeza que deseja reiniciar o timer? Isso voltará para o Nível 1.')) timerAction('reset'); }} className="btn btn-danger">↺</button>
               </div>
             )}
 
