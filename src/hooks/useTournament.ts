@@ -140,6 +140,8 @@ export function useTournament(): UseTournamentReturn {
       tokenRef.current = data.hostToken;
       tournamentIdRef.current = data.id;
 
+      // Set tournament state immediately
+      setTournament(data.tournament);
       setRole('host');
       setCanEdit(true);
 
@@ -214,6 +216,9 @@ export function useTournament(): UseTournamentReturn {
         const data = await res.json();
         throw new Error(data.error || 'Failed to perform timer action');
       }
+
+      const data = await res.json();
+      setTournament((prev) => prev ? { ...prev, timer: data.timer } : null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to perform timer action');
     }
@@ -239,6 +244,9 @@ export function useTournament(): UseTournamentReturn {
         const data = await res.json();
         throw new Error(data.error || 'Failed to add player');
       }
+
+      const data = await res.json();
+      setTournament((prev) => prev ? { ...prev, players: data.players } : null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add player');
     }
@@ -353,7 +361,8 @@ export function useTournament(): UseTournamentReturn {
         eventSourceRef.current.close();
       }
     };
-  }, [fetchState]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return {
     tournament,

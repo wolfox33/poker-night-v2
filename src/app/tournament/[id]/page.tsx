@@ -34,10 +34,10 @@ export default function TournamentPage() {
 
   useEffect(() => {
     // If no tournament loaded and not loading, redirect to home
-    if (!isLoading && !tournament) {
+    if (!isLoading && !tournament && !error) {
       router.push('/');
     }
-  }, [isLoading, tournament, router]);
+  }, [isLoading, tournament, error, router]);
 
   if (isLoading) {
     return (
@@ -65,8 +65,14 @@ export default function TournamentPage() {
     );
   }
 
-  if (!tournament) {
-    return null;
+  if (!tournament || !tournament.timer) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="text-[var(--accent)] text-xl mb-4">Carregando...</div>
+        </div>
+      </div>
+    );
   }
 
   const formatTime = (seconds: number) => {

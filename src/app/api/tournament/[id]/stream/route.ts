@@ -24,7 +24,7 @@ export async function GET(
   const tournament: Tournament = JSON.parse(data);
 
   const isHost = token === tournament.hostToken;
-  const isPlayer = tournament.players.some((p) => p.id === token);
+  const isPlayer = tournament.players?.some((p) => p.id === token);
   
   if (!isHost && !isPlayer) {
     return new Response('Unauthorized', { status: 403 });

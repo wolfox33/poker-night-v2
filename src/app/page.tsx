@@ -70,7 +70,7 @@ export default function Home() {
             </div>
           ) : (
             <div>
-              <h1 className="mb-6 text-center">Entrar no Torneio</h1>
+              <h1 className="mb-6 text-center">Acesse o Torneio</h1>
 
               <div className="space-y-4">
                 <div>

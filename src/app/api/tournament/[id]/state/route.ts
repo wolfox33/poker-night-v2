@@ -8,14 +8,10 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    console.log('GET state for tournament:', id);
-    
     const authHeader = request.headers.get('authorization');
     const token = authHeader?.replace('Bearer ', '');
 
     const data = await getTournament(id);
-    console.log('Tournament data:', data ? 'found' : 'not found');
-    
     if (!data) {
       return NextResponse.json(
         { error: 'Tournament not found' },
@@ -31,7 +27,7 @@ export async function GET(
     if (token === tournament.hostToken) {
       role = 'host';
       canEdit = true;
-    } else if (tournament.players.some((p) => p.id === token)) {
+    } else if (tournament.players?.some((p) => p.id === token)) {
       role = 'player';
       canEdit = false;
     }

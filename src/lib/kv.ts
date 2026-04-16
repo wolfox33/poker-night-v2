@@ -1,8 +1,7 @@
+import { Redis } from '@upstash/redis';
+
 const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
 const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
-
-console.log('UPSTASH_URL configured:', !!UPSTASH_URL);
-console.log('UPSTASH_TOKEN configured:', !!UPSTASH_TOKEN);
 
 export interface KVClient {
   get(key: string): Promise<string | null>;
@@ -11,14 +10,18 @@ export interface KVClient {
 }
 
 function createUpstashClient(): KVClient {
+  const redis = new Redis({
+    url: UPSTASH_URL!,
+    token: UPSTASH_TOKEN!,
+  });
+
   return {
     async get(key: string): Promise<string | null> {
       try {
-        const res = await fetch(`${UPSTASH_URL}/get/${encodeURIComponent(key)}`, {
-          headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` },
-        });
-        const data = await res.json();
-        return data.result || null;
+        const result = await redis.get(key);
+        if (result === null || result === undefined) return null;
+        if (typeof result === 'string') return result;
+        return JSON.stringify(result);
       } catch (error) {
         console.error('Upstash GET error:', error);
         return null;
@@ -27,16 +30,11 @@ function createUpstashClient(): KVClient {
 
     async set(key: string, value: string, ttl?: number): Promise<void> {
       try {
-        const url = `${UPSTASH_URL}/set/${encodeURIComponent(key)}`;
-        const body = ttl ? { value, ex: ttl } : { value };
-        await fetch(url, {
-          method: 'POST',
-          headers: { 
-            Authorization: `Bearer ${UPSTASH_TOKEN}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(body),
-        });
+        if (ttl) {
+          await redis.set(key, value, { ex: ttl });
+        } else {
+          await redis.set(key, value);
+        }
       } catch (error) {
         console.error('Upstash SET error:', error);
       }
@@ -44,10 +42,7 @@ function createUpstashClient(): KVClient {
 
     async delete(key: string): Promise<void> {
       try {
-        await fetch(`${UPSTASH_URL}/del/${encodeURIComponent(key)}`, {
-          method: 'POST',
-          headers: { Authorization: `Bearer ${UPSTASH_TOKEN}` },
-        });
+        await redis.del(key);
       } catch (error) {
         console.error('Upstash DEL error:', error);
       }
@@ -82,7 +77,6 @@ function createMemoryClient(): KVClient {
 
 export function getClient(): KVClient {
   if (!UPSTASH_URL || !UPSTASH_TOKEN) {
-    console.warn('Using in-memory fallback (no Redis configured)');
     return createMemoryClient();
   }
   return createUpstashClient();
