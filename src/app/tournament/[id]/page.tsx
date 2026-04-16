@@ -1,6 +1,19 @@
 'use client';
 
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
+
+// Wake Lock API types (not in default DOM types yet)
+interface WakeLockSentinel extends EventTarget {
+  released: boolean;
+  type: 'screen';
+  release(): Promise<void>;
+  onrelease: ((this: WakeLockSentinel, ev: Event) => unknown) | null;
+}
+interface Navigator {
+  wakeLock: {
+    request(type: 'screen'): Promise<WakeLockSentinel>;
+  };
+}
 import { useTournament } from '@/hooks/useTournament';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import { BLINDS_LEVELS } from '@/types/tournament';
@@ -165,6 +178,48 @@ export default function TournamentPage() {
     const id = setInterval(tick, 200);
     return () => clearInterval(id);
   }, [tournament?.timer?.isRunning, tournament?.timer?.startedAt, tournament?.timer?.timeRemaining, tournament?.timer?.currentLevel, playBeep, showNotification]);
+
+  // Wake Lock: keep screen awake when timer tab is active and timer is running
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+
+  useEffect(() => {
+    const isTimerTab = activeTab === 'timer';
+    const isRunning = tournament?.timer?.isRunning;
+
+    const requestWakeLock = async () => {
+      try {
+        if ('wakeLock' in navigator && !wakeLockRef.current) {
+          wakeLockRef.current = await navigator.wakeLock.request('screen');
+        }
+      } catch {}
+    };
+
+    const releaseWakeLock = () => {
+      if (wakeLockRef.current) {
+        wakeLockRef.current.release().catch(() => {});
+        wakeLockRef.current = null;
+      }
+    };
+
+    if (isTimerTab && isRunning) {
+      requestWakeLock();
+    } else {
+      releaseWakeLock();
+    }
+
+    // Re-acquire wake lock when visibility changes (user returns to tab)
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && isTimerTab && isRunning) {
+        requestWakeLock();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      releaseWakeLock();
+    };
+  }, [activeTab, tournament?.timer?.isRunning]);
 
   // ── Derived values & memos (MUST be before any conditional return) ──
 
