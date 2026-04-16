@@ -72,11 +72,106 @@ export default function TournamentPage() {
   }, [tournament?.config.prizeCount]);
 
   useEffect(() => {
-    // If no tournament loaded and not loading, redirect to home
     if (!isLoading && !tournament && !error) {
       router.push('/');
     }
   }, [isLoading, tournament, error, router]);
+
+  // ── Derived values & memos (MUST be before any conditional return) ──
+
+  const calcPlayerCost = (p: { buyins: number; rebuys: number; addon: boolean }) => {
+    if (!tournament) return 0;
+    const buyins = p.buyins * tournament.config.buyIn;
+    const rebuys = p.rebuys > 1
+      ? (p.rebuys - 1) * tournament.config.rebuyDouble
+      : p.rebuys * tournament.config.rebuySingle;
+    const addon = p.addon ? tournament.config.addon : 0;
+    return buyins + rebuys + addon;
+  };
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const totalPot = useMemo(
+    () => tournament?.players.reduce((sum, p) => sum + calcPlayerCost(p), 0) ?? 0,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tournament]
+  );
+
+  const prizePreview = useMemo(() => {
+    if (!tournament) return [];
+    const pct = SNG_PCT[tournament.config.prizeCount] ?? SNG_PCT[3];
+    return pct.map((p) => Math.round(totalPot * p / 100 / 5) * 5);
+  }, [totalPot, tournament?.config.prizeCount]);
+
+  function calcICM(chips: number[], prizes: number[]): number[] {
+    const n = chips.length;
+    const totalChips = chips.reduce((a, b) => a + b, 0);
+    if (totalChips === 0 || n === 0) return prizes.map(() => 0);
+    const equities = Array(n).fill(0);
+    function recurse(remaining: number[], ranking: number[], prob: number) {
+      if (remaining.length === 0) {
+        ranking.forEach((idx, pos) => { equities[idx] += prob * (prizes[pos] ?? 0); });
+        return;
+      }
+      const tot = remaining.reduce((a, i) => a + chips[i], 0);
+      for (let i = 0; i < remaining.length; i++) {
+        const idx = remaining[i];
+        recurse(remaining.filter((_, j) => j !== i), [...ranking, idx], prob * chips[idx] / tot);
+      }
+    }
+    recurse(Array.from({ length: n }, (_, i) => i), [], 1);
+    return equities;
+  }
+
+  const calculatedPrizes = useMemo(() => {
+    if (!tournament) return [];
+    const pct = SNG_PCT[tournament.config.prizeCount] ?? SNG_PCT[3];
+    const prizes = pct.map((p) => totalPot * p / 100);
+    if (rankingMode === 'icm' && rankingChips.some(c => c > 0)) {
+      const icm = calcICM(rankingChips, prizes);
+      return icm.map(v => Math.round(v / 5) * 5);
+    }
+    if (rankingMode === 'manual') return rankingManual;
+    return prizes.map(v => Math.round(v / 5) * 5);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rankingMode, rankingChips, rankingManual, totalPot, tournament?.config.prizeCount]);
+
+  const settlementData = useMemo(() => {
+    if (!tournament) return null;
+    const resumo: Record<string, { gastoTorneio: number; extrasAPagar: number; extrasPagos: number; recebeu: number }> = {};
+    tournament.players.forEach(p => {
+      resumo[p.id] = { gastoTorneio: calcPlayerCost(p), extrasAPagar: 0, extrasPagos: 0, recebeu: 0 };
+    });
+    tournament.extras.forEach(extra => {
+      const share = extra.amount / extra.splitAmong.length;
+      const paid = extra.paidBy.length > 0 ? extra.amount / extra.paidBy.length : 0;
+      extra.splitAmong.forEach(id => { if (resumo[id]) resumo[id].extrasAPagar += share; });
+      extra.paidBy.forEach(id => { if (resumo[id]) resumo[id].extrasPagos += paid; });
+    });
+    tournament.ranking.places.forEach(place => {
+      if (resumo[place.playerId]) resumo[place.playerId].recebeu = place.prize;
+    });
+    const saldos: Record<string, number> = {};
+    Object.keys(resumo).forEach(id => {
+      const r = resumo[id];
+      saldos[id] = r.recebeu + r.extrasPagos - r.extrasAPagar - r.gastoTorneio;
+    });
+    const devedores = Object.entries(saldos).filter(([, v]) => v < -0.01).map(([id, v]) => ({ id, valor: -v })).sort((a, b) => b.valor - a.valor);
+    const credores = Object.entries(saldos).filter(([, v]) => v > 0.01).map(([id, v]) => ({ id, valor: v })).sort((a, b) => b.valor - a.valor);
+    const transacoes: { de: string; para: string; valor: number }[] = [];
+    const d = devedores.map(x => ({ ...x }));
+    const c = credores.map(x => ({ ...x }));
+    while (d.length > 0 && c.length > 0) {
+      const val = Math.min(d[0].valor, c[0].valor);
+      if (val > 0.01) transacoes.push({ de: d[0].id, para: c[0].id, valor: Math.round(val / 5) * 5 });
+      d[0].valor -= val; c[0].valor -= val;
+      if (d[0].valor < 0.01) d.shift();
+      if (c[0].valor < 0.01) c.shift();
+    }
+    return { resumo, saldos, transacoes };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tournament]);
+
+  // ── Conditional returns (after ALL hooks) ──
 
   if (isLoading) {
     return (
@@ -140,55 +235,6 @@ export default function TournamentPage() {
     setIsAddingPlayer(false);
   };
 
-  const calcPlayerCost = (p: typeof tournament.players[0]) => {
-    const buyins = p.buyins * tournament.config.buyIn;
-    const rebuys = p.rebuys > 1
-      ? (p.rebuys - 1) * tournament.config.rebuyDouble
-      : p.rebuys * tournament.config.rebuySingle;
-    const addon = p.addon ? tournament.config.addon : 0;
-    return buyins + rebuys + addon;
-  };
-
-  const totalPot = tournament.players.reduce((sum, p) => sum + calcPlayerCost(p), 0);
-
-  const prizePreview = useMemo(() => {
-    const pct = SNG_PCT[tournament.config.prizeCount] ?? SNG_PCT[3];
-    return pct.map((p) => Math.round(totalPot * p / 100 / 5) * 5);
-  }, [totalPot, tournament.config.prizeCount]);
-
-  function calcICM(chips: number[], prizes: number[]): number[] {
-    const n = chips.length;
-    const totalChips = chips.reduce((a, b) => a + b, 0);
-    if (totalChips === 0 || n === 0) return prizes.map(() => 0);
-    const equities = Array(n).fill(0);
-    function recurse(remaining: number[], ranking: number[], prob: number) {
-      if (remaining.length === 0) {
-        ranking.forEach((idx, pos) => { equities[idx] += prob * (prizes[pos] ?? 0); });
-        return;
-      }
-      const tot = remaining.reduce((a, i) => a + chips[i], 0);
-      for (let i = 0; i < remaining.length; i++) {
-        const idx = remaining[i];
-        recurse(remaining.filter((_, j) => j !== i), [...ranking, idx], prob * chips[idx] / tot);
-      }
-    }
-    recurse(Array.from({ length: n }, (_, i) => i), [], 1);
-    return equities;
-  }
-
-  const calculatedPrizes = useMemo(() => {
-    const pct = SNG_PCT[tournament.config.prizeCount] ?? SNG_PCT[3];
-    const prizes = pct.map((p) => totalPot * p / 100);
-    if (rankingMode === 'icm' && rankingChips.some(c => c > 0)) {
-      const icm = calcICM(rankingChips, prizes);
-      return icm.map(v => Math.round(v / 5) * 5);
-    }
-    if (rankingMode === 'manual') {
-      return rankingManual;
-    }
-    return prizes.map(v => Math.round(v / 5) * 5);
-  }, [rankingMode, rankingChips, rankingManual, totalPot, tournament.config.prizeCount]);
-
   const handleAddExtra = async () => {
     const amount = parseFloat(extraAmount);
     if (!extraDesc.trim() || !amount || extraSplitAmong.length === 0) return;
@@ -200,48 +246,14 @@ export default function TournamentPage() {
   };
 
   const handleFinishRanking = async () => {
+    if (!tournament) return;
     const positions = rankingPositions.map((playerId, i) => ({ playerId, position: i + 1 }))
       .filter(p => p.playerId);
     if (positions.length !== tournament.config.prizeCount) return;
     await updateRanking(positions, calculatedPrizes, rankingMode);
   };
 
-  const settlementData = useMemo(() => {
-    if (!tournament) return null;
-    const resumo: Record<string, { gastoTorneio: number; extrasAPagar: number; extrasPagos: number; recebeu: number }> = {};
-    tournament.players.forEach(p => {
-      resumo[p.id] = { gastoTorneio: calcPlayerCost(p), extrasAPagar: 0, extrasPagos: 0, recebeu: 0 };
-    });
-    tournament.extras.forEach(extra => {
-      const share = extra.amount / extra.splitAmong.length;
-      const paid = extra.paidBy.length > 0 ? extra.amount / extra.paidBy.length : 0;
-      extra.splitAmong.forEach(id => { if (resumo[id]) resumo[id].extrasAPagar += share; });
-      extra.paidBy.forEach(id => { if (resumo[id]) resumo[id].extrasPagos += paid; });
-    });
-    tournament.ranking.places.forEach(place => {
-      if (resumo[place.playerId]) resumo[place.playerId].recebeu = place.prize;
-    });
-    const saldos: Record<string, number> = {};
-    Object.keys(resumo).forEach(id => {
-      const r = resumo[id];
-      saldos[id] = r.recebeu + r.extrasPagos - r.extrasAPagar - r.gastoTorneio;
-    });
-    const devedores = Object.entries(saldos).filter(([, v]) => v < -0.01).map(([id, v]) => ({ id, valor: -v })).sort((a, b) => b.valor - a.valor);
-    const credores = Object.entries(saldos).filter(([, v]) => v > 0.01).map(([id, v]) => ({ id, valor: v })).sort((a, b) => b.valor - a.valor);
-    const transacoes: { de: string; para: string; valor: number }[] = [];
-    const d = devedores.map(x => ({ ...x }));
-    const c = credores.map(x => ({ ...x }));
-    while (d.length > 0 && c.length > 0) {
-      const val = Math.min(d[0].valor, c[0].valor);
-      if (val > 0.01) transacoes.push({ de: d[0].id, para: c[0].id, valor: Math.round(val / 5) * 5 });
-      d[0].valor -= val; c[0].valor -= val;
-      if (d[0].valor < 0.01) d.shift();
-      if (c[0].valor < 0.01) c.shift();
-    }
-    return { resumo, saldos, transacoes };
-  }, [tournament]);
-
-  const playerName = (id: string) => tournament.players.find(p => p.id === id)?.name ?? id;
+  const playerName = (id: string) => tournament?.players.find(p => p.id === id)?.name ?? id;
 
   return (
     <div className="min-h-screen p-4">
