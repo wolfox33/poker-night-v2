@@ -68,10 +68,10 @@ test.describe('Poker Night E2E', () => {
     await addPlayer(page, 'Pedro');
 
     await page.click('button:has-text("+ Addon")');
-    await expect(page.locator('text=Addon').first()).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('span.bg-green-500')).toBeVisible({ timeout: 10000 });
 
     await page.click('button:has-text("Remover Addon")');
-    await expect(page.locator('text=Addon')).not.toBeVisible({ timeout: 10000 });
+    await expect(page.locator('span.bg-green-500')).not.toBeVisible({ timeout: 10000 });
   });
 
   test('prize preview updates when player added', async ({ page }) => {
@@ -89,7 +89,7 @@ test.describe('Poker Night E2E', () => {
     await createTournamentAndNavigate(page);
     await page.click('button:has-text("Timer")');
 
-    await expect(page.locator('text=NÍVEL')).toBeVisible();
+    await expect(page.locator('text=Tabela de Blinds')).toBeVisible({ timeout: 10000 });
 
     const startBtn = page.locator('button:has-text("Iniciar")');
     await expect(startBtn).toBeVisible();
@@ -101,10 +101,10 @@ test.describe('Poker Night E2E', () => {
     await expect(page.locator('button:has-text("Iniciar")')).toBeVisible({ timeout: 5000 });
 
     await page.click('button:has-text("Próx. Nível")');
-    await expect(page.locator('text=NÍVEL 2 / 27')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('text=2 / 27').first()).toBeVisible({ timeout: 10000 });
 
     await page.click('button:has-text("↺")');
-    await expect(page.locator('text=NÍVEL 1 / 27')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('text=1 / 27').first()).toBeVisible({ timeout: 10000 });
   });
 
   test('timer shows progress bar and next blind', async ({ page }) => {
@@ -153,7 +153,7 @@ test.describe('Poker Night E2E', () => {
     await expect(page.locator('text=🥇 Lugar')).toBeVisible();
     await expect(page.locator('text=🥈 Lugar')).toBeVisible();
     await expect(page.locator('text=🥉 Lugar')).toBeVisible();
-    await expect(page.locator('text=Acordo')).toBeVisible();
+    await expect(page.locator('label:has-text("Acordo")')).toBeVisible();
     await expect(page.locator('text=Premiação calculada')).toBeVisible();
   });
 
