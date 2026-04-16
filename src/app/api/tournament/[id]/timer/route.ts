@@ -44,13 +44,11 @@ export async function POST(
         break;
 
       case 'pause':
-        if (tournament.timer.isRunning) {
+        if (tournament.timer.isRunning && tournament.timer.startedAt) {
+          const elapsed = Math.floor((Date.now() - tournament.timer.startedAt) / 1000);
+          tournament.timer.timeRemaining = Math.max(0, tournament.timer.timeRemaining - elapsed);
+          tournament.timer.totalElapsed += elapsed;
           tournament.timer.isRunning = false;
-          // Save the elapsed time so we can resume correctly
-          if (tournament.timer.startedAt) {
-            const elapsed = Math.floor((Date.now() - tournament.timer.startedAt) / 1000);
-            tournament.timer.totalElapsed += elapsed;
-          }
           tournament.timer.startedAt = null;
         }
         break;

@@ -59,6 +59,9 @@ export default function TournamentPage() {
   // Rebuy modal
   const [rebuyPlayerId, setRebuyPlayerId] = useState<string | null>(null);
 
+  // Client-side timer interpolation — smooth display without relying solely on SSE
+  const [localTime, setLocalTime] = useState(0);
+
   // Sync rankingPositions length with prizeCount
   useEffect(() => {
     if (!tournament) return;
@@ -76,6 +79,27 @@ export default function TournamentPage() {
       router.push('/');
     }
   }, [isLoading, tournament, error, router]);
+
+  // Interpolate timer display client-side every 200ms
+  useEffect(() => {
+    const timer = tournament?.timer;
+    if (!timer) {
+      setLocalTime(0);
+      return;
+    }
+    if (!timer.isRunning || !timer.startedAt) {
+      setLocalTime(timer.timeRemaining);
+      return;
+    }
+    const { startedAt, timeRemaining } = timer;
+    const tick = () => {
+      const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+      setLocalTime(Math.max(0, timeRemaining - elapsed));
+    };
+    tick();
+    const id = setInterval(tick, 200);
+    return () => clearInterval(id);
+  }, [tournament?.timer?.isRunning, tournament?.timer?.startedAt, tournament?.timer?.timeRemaining]);
 
   // ── Derived values & memos (MUST be before any conditional return) ──
 
@@ -225,7 +249,7 @@ export default function TournamentPage() {
   const currentBlinds = BLINDS_LEVELS[tournament.timer.currentLevel - 1];
   const nextBlinds = BLINDS_LEVELS[tournament.timer.currentLevel] ?? null;
   const levelDurationSecs = tournament.config.levelDuration * 60;
-  const progressPct = Math.max(0, Math.min(100, ((levelDurationSecs - tournament.timer.timeRemaining) / levelDurationSecs) * 100));
+  const progressPct = Math.max(0, Math.min(100, ((levelDurationSecs - localTime) / levelDurationSecs) * 100));
 
   const handleAddPlayer = async () => {
     if (!newPlayerName.trim()) return;
@@ -410,7 +434,7 @@ export default function TournamentPage() {
                 </div>
               )}
               <div className="text-7xl font-bold text-white neon-text my-3 tracking-widest">
-                {formatTime(tournament.timer.timeRemaining)}
+                {formatTime(localTime)}
               </div>
               {/* Progress bar */}
               <div className="h-2 rounded-full overflow-hidden mb-2" style={{ background: 'rgba(255,255,255,0.1)' }}>
@@ -422,7 +446,7 @@ export default function TournamentPage() {
               {nextBlinds && (
                 <div className="text-xs text-[var(--text-muted)]">
                   Próximo: <span className="text-[var(--accent)]">{nextBlinds.smallBlind}/{nextBlinds.bigBlind}</span>
-                  {' em '}<span className="text-[var(--accent)]">{formatTime(tournament.timer.timeRemaining)}</span>
+                  {' em '}<span className="text-[var(--accent)]">{formatTime(localTime)}</span>
                 </div>
               )}
               <div className="text-xs text-[var(--text-muted)] mt-1">

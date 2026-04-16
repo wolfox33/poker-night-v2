@@ -89,14 +89,13 @@ export async function startServerTimer(tournamentId: string, levelDuration: numb
     }
 
     const elapsed = Math.floor((Date.now() - tournament.timer.startedAt) / 1000);
-    const totalSeconds = tournament.timer.currentLevel * levelDuration;
-    const remaining = Math.max(0, totalSeconds - elapsed);
+    const remaining = Math.max(0, tournament.timer.timeRemaining - elapsed);
 
-    tournament.timer.timeRemaining = remaining;
-    tournament.timer.totalElapsed = elapsed;
+    tournament.timer.totalElapsed += 1;
 
-    if (remaining === 0 && tournament.timer.currentLevel < BLINDS_LEVELS.length) {
+    if (remaining <= 0 && tournament.timer.currentLevel < BLINDS_LEVELS.length) {
       tournament.timer.currentLevel += 1;
+      tournament.timer.timeRemaining = levelDuration;
       tournament.timer.startedAt = Date.now();
     }
 

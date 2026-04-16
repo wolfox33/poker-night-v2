@@ -425,6 +425,23 @@ export function useTournament(): UseTournamentReturn {
     tokenRef.current = null;
   }, []);
 
+  // Polling fallback: refresh state every 5s when timer is running (SSE may not work across serverless instances)
+  useEffect(() => {
+    if (!tournament?.timer?.isRunning) return;
+    const id = tournamentIdRef.current;
+    const token = tokenRef.current;
+    if (!id || !token) return;
+    const intervalId = setInterval(() => {
+      fetch(`/api/tournament/${id}/state`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => { if (data?.tournament) setTournament(data.tournament); })
+        .catch(() => {});
+    }, 5000);
+    return () => clearInterval(intervalId);
+  }, [tournament?.timer?.isRunning]);
+
   // Initialize on mount - check for stored session
   useEffect(() => {
     const storedId = localStorage.getItem('poker_tournament_id');
