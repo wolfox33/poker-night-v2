@@ -377,26 +377,44 @@ export default function TournamentPage() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-2 mb-6 overflow-x-auto pb-1">
-        {([ 
-          ['tournament', 'Torneio'],
-          ['timer', 'Timer'],
-          ['ranking', 'Ranking'],
-          ['config', 'Config'],
-          ['extras', 'Extras'],
-          ['acerto', 'Acerto'],
-        ] as [Tab, string][]).map(([tab, label]) => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`px-4 py-2 rounded-lg text-sm whitespace-nowrap ${
-              activeTab === tab ? 'bg-[var(--accent)] text-black font-bold' : 'glass text-[var(--text-muted)]'
-            }`}
-          >
-            {label}
-          </button>
-        ))}
+      {/* Tabs - Two rows: Config/Extras on top, rest on bottom */}
+      <div className="mb-6 space-y-2">
+        {/* Top row: Config, Extras */}
+        <div className="flex gap-2 justify-center">
+          {([
+            ['config', 'Config'],
+            ['extras', 'Extras'],
+          ] as [Tab, string][]).map(([tab, label]) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-4 py-2 rounded-lg text-sm whitespace-nowrap ${
+                activeTab === tab ? 'bg-[var(--accent)] text-black font-bold' : 'glass text-[var(--text-muted)]'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {/* Bottom row: Torneio, Timer, Ranking, Acerto */}
+        <div className="flex gap-2 justify-center">
+          {([
+            ['tournament', 'Torneio'],
+            ['timer', 'Timer'],
+            ['ranking', 'Ranking'],
+            ['acerto', 'Acerto'],
+          ] as [Tab, string][]).map(([tab, label]) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab)}
+              className={`px-4 py-2 rounded-lg text-sm whitespace-nowrap ${
+                activeTab === tab ? 'bg-[var(--accent)] text-black font-bold' : 'glass text-[var(--text-muted)]'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Tab Content */}
