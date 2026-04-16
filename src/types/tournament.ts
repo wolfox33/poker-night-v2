@@ -81,7 +81,7 @@ export interface TournamentResponse {
 }
 
 export interface TimerAction {
-  action: 'start' | 'pause' | 'reset' | 'skip';
+  action: 'start' | 'pause' | 'reset' | 'skip' | 'advance';
 }
 
 export interface PlayerAction {

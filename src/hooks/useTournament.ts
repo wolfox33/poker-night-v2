@@ -223,7 +223,7 @@ export function useTournament(): UseTournamentReturn {
     }
   }, [connectToStream]);
 
-  const timerAction = useCallback(async (action: 'start' | 'pause' | 'reset' | 'skip') => {
+  const timerAction = useCallback(async (action: 'start' | 'pause' | 'reset' | 'skip' | 'advance') => {
     const id = tournamentIdRef.current;
     const token = tokenRef.current;
 

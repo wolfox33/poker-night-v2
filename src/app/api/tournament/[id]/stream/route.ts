@@ -44,16 +44,12 @@ export async function GET(
       controller.enqueue(
         new TextEncoder().encode(`data: ${JSON.stringify({ type: 'state', data: tournament })}\n\n`)
       );
-
-      if (tournament.timer.isRunning && tournament.timer.startedAt) {
-        startServerTimer(id, tournament.config.levelDuration * 60);
-      }
+      // Server-side timer removed - clients calculate time locally and notify on level change
     },
     cancel() {
       clientMap.delete(clientId);
       if (clientMap.size === 0) {
         clients.delete(id);
-        stopServerTimer(id);
       }
     },
   });
@@ -65,72 +61,6 @@ export async function GET(
       'Connection': 'keep-alive',
     },
   });
-}
-
-const timers = new Map<string, NodeJS.Timeout>();
-
-export async function startServerTimer(tournamentId: string, levelDuration: number) {
-  if (timers.has(tournamentId)) {
-    return;
-  }
-
-  const sendUpdate = async () => {
-    const data = await getTournament(tournamentId);
-    if (!data) {
-      stopServerTimer(tournamentId);
-      return;
-    }
-
-    const tournament: Tournament = JSON.parse(data);
-    
-    if (!tournament.timer.isRunning || !tournament.timer.startedAt) {
-      stopServerTimer(tournamentId);
-      return;
-    }
-
-    const elapsed = Math.floor((Date.now() - tournament.timer.startedAt) / 1000);
-    const remaining = Math.max(0, tournament.timer.timeRemaining - elapsed);
-
-    tournament.timer.totalElapsed += 1;
-
-    if (remaining <= 0 && tournament.timer.currentLevel < BLINDS_LEVELS.length) {
-      tournament.timer.currentLevel += 1;
-      tournament.timer.timeRemaining = levelDuration;
-      tournament.timer.startedAt = Date.now();
-    }
-
-    await setTournament(tournamentId, JSON.stringify(tournament));
-
-    const clientMap = clients.get(tournamentId);
-    if (clientMap) {
-      const message = `data: ${JSON.stringify({ type: 'timer', data: tournament.timer })}\n\n`;
-      const encoded = new TextEncoder().encode(message);
-      for (const controller of clientMap.values()) {
-        try {
-          controller.enqueue(encoded);
-        } catch {
-          // Client disconnected
-        }
-      }
-    }
-
-    if (tournament.timer.isRunning) {
-      timers.set(
-        tournamentId,
-        setTimeout(sendUpdate, 1000)
-      );
-    }
-  };
-
-  sendUpdate();
-}
-
-export function stopServerTimer(tournamentId: string) {
-  const timer = timers.get(tournamentId);
-  if (timer) {
-    clearTimeout(timer);
-    timers.delete(tournamentId);
-  }
 }
 
 export function broadcastToTournament(tournamentId: string, message: object) {

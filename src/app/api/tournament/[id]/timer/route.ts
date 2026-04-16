@@ -73,6 +73,15 @@ export async function POST(
           }
         }
         break;
+
+      case 'advance':
+        // Client-triggered level advance when timer reaches zero
+        if (tournament.timer.currentLevel < 27) {
+          tournament.timer.currentLevel += 1;
+          tournament.timer.timeRemaining = levelDuration;
+          tournament.timer.startedAt = tournament.timer.isRunning ? Date.now() : null;
+        }
+        break;
     }
 
     await setTournament(id, JSON.stringify(tournament));

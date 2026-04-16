@@ -170,14 +170,25 @@ export default function TournamentPage() {
       prevLevelRef.current = currentLevel;
     }
 
+    // Track if we've already triggered advance for this level
+    const hasTriggeredRef = { current: false };
+
     const tick = () => {
       const elapsed = Math.floor((Date.now() - startedAt) / 1000);
-      setLocalTime(Math.max(0, timeRemaining - elapsed));
+      const remaining = Math.max(0, timeRemaining - elapsed);
+      setLocalTime(remaining);
+
+      // Client-triggered level advance when time reaches zero
+      if (remaining === 0 && !hasTriggeredRef.current && tournament?.timer?.isRunning) {
+        hasTriggeredRef.current = true;
+        // Debounce: only first client to detect triggers the advance
+        timerAction('advance').catch(() => {});
+      }
     };
     tick();
     const id = setInterval(tick, 200);
     return () => clearInterval(id);
-  }, [tournament?.timer?.isRunning, tournament?.timer?.startedAt, tournament?.timer?.timeRemaining, tournament?.timer?.currentLevel, playBeep, showNotification]);
+  }, [tournament?.timer?.isRunning, tournament?.timer?.startedAt, tournament?.timer?.timeRemaining, tournament?.timer?.currentLevel, playBeep, showNotification, timerAction]);
 
   // Wake Lock: keep screen awake when timer tab is active and timer is running
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
