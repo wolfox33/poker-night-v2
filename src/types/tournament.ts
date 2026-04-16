@@ -5,6 +5,7 @@ export interface TournamentConfig {
   addon: number;
   prizeCount: number;
   levelDuration: number;
+  roundingStep: number; // Arredondamento de valores (1 = inteiro, 5 = múltiplo de 5, etc.)
 }
 
 export type TournamentState = 'setup' | 'running' | 'finished';
@@ -107,12 +108,13 @@ export interface RankingAction {
 }
 
 export const DEFAULT_CONFIG: TournamentConfig = {
-  buyIn: 100,
-  rebuySingle: 100,
-  rebuyDouble: 200,
-  addon: 100,
+  buyIn: 20,
+  rebuySingle: 10,
+  rebuyDouble: 20,
+  addon: 20,
   prizeCount: 3,
   levelDuration: 12,
+  roundingStep: 1,
 };
 
 export const DEFAULT_TIMER_STATE: TimerState = {

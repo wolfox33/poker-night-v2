@@ -185,11 +185,18 @@ export default function TournamentPage() {
     [tournament]
   );
 
+  // Helper para arredondar segundo roundingStep do torneio
+  const roundValue = (val: number) => {
+    const step = tournament?.config.roundingStep ?? 1;
+    if (step <= 0) return Math.round(val);
+    return Math.round(val / step) * step;
+  };
+
   const prizePreview = useMemo(() => {
     if (!tournament) return [];
     const pct = SNG_PCT[tournament.config.prizeCount] ?? SNG_PCT[3];
-    return pct.map((p) => Math.round(totalPot * p / 100));
-  }, [totalPot, tournament?.config.prizeCount]);
+    return pct.map((p) => roundValue(totalPot * p / 100));
+  }, [totalPot, tournament?.config.prizeCount, tournament?.config.roundingStep]);
 
   function calcICM(chips: number[], prizes: number[]): number[] {
     const n = chips.length;
@@ -217,12 +224,12 @@ export default function TournamentPage() {
     const prizes = pct.map((p) => totalPot * p / 100);
     if (rankingMode === 'icm' && rankingChips.some(c => c > 0)) {
       const icm = calcICM(rankingChips, prizes);
-      return icm.map(v => Math.round(v));
+      return icm.map(v => roundValue(v));
     }
-    if (rankingMode === 'manual') return rankingManual;
-    return prizes.map(v => Math.round(v));
+    if (rankingMode === 'manual') return rankingManual.map(v => roundValue(v));
+    return prizes.map(v => roundValue(v));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rankingMode, rankingChips, rankingManual, totalPot, tournament?.config.prizeCount]);
+  }, [rankingMode, rankingChips, rankingManual, totalPot, tournament?.config.prizeCount, tournament?.config.roundingStep]);
 
   const settlementData = useMemo(() => {
     if (!tournament) return null;
@@ -251,7 +258,8 @@ export default function TournamentPage() {
     const c = credores.map(x => ({ ...x }));
     while (d.length > 0 && c.length > 0) {
       const val = Math.min(d[0].valor, c[0].valor);
-      if (val > 0.5) transacoes.push({ de: d[0].id, para: c[0].id, valor: Math.round(val) });
+      const minTx = (tournament.config.roundingStep ?? 1) / 2;
+      if (val > minTx) transacoes.push({ de: d[0].id, para: c[0].id, valor: roundValue(val) });
       d[0].valor -= val; c[0].valor -= val;
       if (d[0].valor < 0.01) d.shift();
       if (c[0].valor < 0.01) c.shift();
@@ -714,10 +722,11 @@ export default function TournamentPage() {
                   ['Rebuy Duplo (R$)', 'rebuyDouble', tournament.config.rebuyDouble],
                   ['Addon (R$)', 'addon', tournament.config.addon],
                   ['Minutos por Nível', 'levelDuration', tournament.config.levelDuration],
+                  ['Arredondamento (R$)', 'roundingStep', tournament.config.roundingStep],
                 ].map(([label, key, val]) => (
                   <div key={key as string}>
                     <label className="block text-sm text-[var(--text-muted)] mb-2">{label as string}</label>
-                    <input type="number" defaultValue={val as number} onBlur={(e) => updateConfig({ [key as string]: Number(e.target.value) })} className="input" />
+                    <input type="number" min={1} defaultValue={val as number} onBlur={(e) => updateConfig({ [key as string]: Number(e.target.value) })} className="input" />
                   </div>
                 ))}
                 <div>
@@ -738,6 +747,7 @@ export default function TournamentPage() {
                   ['Addon', `R$ ${tournament.config.addon}`],
                   ['Premiados', String(tournament.config.prizeCount)],
                   ['Minutos/Nível', String(tournament.config.levelDuration)],
+                  ['Arredondamento', `R$ ${tournament.config.roundingStep}`],
                 ].map(([l, v]) => (
                   <div key={l} className="glass-card flex justify-between">
                     <span className="text-[var(--text-muted)]">{l}</span>
