@@ -43,8 +43,17 @@ export function useTournament(): UseTournamentReturn {
   const eventSourceRef = useRef<EventSource | null>(null);
   const tournamentIdRef = useRef<string | null>(null);
   const tokenRef = useRef<string | null>(null);
+  const retryCountRef = useRef(0);
+  const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const MAX_RETRIES = 5;
+  const BASE_DELAY = 3000;
 
   const connectToStream = useCallback((id: string, token: string) => {
+    // Clear any pending retry
+    if (retryTimeoutRef.current) {
+      clearTimeout(retryTimeoutRef.current);
+      retryTimeoutRef.current = null;
+    }
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
     }
@@ -60,6 +69,7 @@ export function useTournament(): UseTournamentReturn {
     eventSource.onopen = () => {
       setIsConnected(true);
       setError(null);
+      retryCountRef.current = 0; // Reset retry counter on successful connection
     };
 
     eventSource.onmessage = (event) => {
@@ -79,16 +89,29 @@ export function useTournament(): UseTournamentReturn {
       }
     };
 
-    eventSource.onerror = () => {
+    eventSource.onerror = (err) => {
       setIsConnected(false);
       eventSource.close();
 
-      // Reconnect after 3 seconds
-      setTimeout(() => {
+      // Check if it's a permanent error (stop retrying)
+      const event = err as Event & { target?: EventSource };
+      const permanentErrors = [401, 403, 404];
+      // EventSource doesn't expose status code directly, but we track retries
+      if (retryCountRef.current >= MAX_RETRIES) {
+        console.error('SSE: Max retries reached, giving up');
+        setError('Connection failed after multiple attempts. Please refresh.');
+        return;
+      }
+
+      // Exponential backoff: 3s, 6s, 12s, 24s, 48s
+      const delay = BASE_DELAY * Math.pow(2, retryCountRef.current);
+      retryCountRef.current++;
+
+      retryTimeoutRef.current = setTimeout(() => {
         if (tournamentIdRef.current && tokenRef.current) {
           connectToStream(tournamentIdRef.current, tokenRef.current);
         }
-      }, 3000);
+      }, delay);
     };
 
     eventSourceRef.current = eventSource;
@@ -425,9 +448,10 @@ export function useTournament(): UseTournamentReturn {
     tokenRef.current = null;
   }, []);
 
-  // Polling fallback: refresh state every 5s when timer is running (SSE may not work across serverless instances)
+  // Polling fallback: only when SSE is NOT connected and timer is running
   useEffect(() => {
     if (!tournament?.timer?.isRunning) return;
+    if (isConnected) return; // Don't poll if SSE is working
     const id = tournamentIdRef.current;
     const token = tokenRef.current;
     if (!id || !token) return;
@@ -438,9 +462,9 @@ export function useTournament(): UseTournamentReturn {
         .then(r => r.ok ? r.json() : null)
         .then(data => { if (data?.tournament) setTournament(data.tournament); })
         .catch(() => {});
-    }, 5000);
+    }, 30000); // Increased to 30s to reduce function invocations
     return () => clearInterval(intervalId);
-  }, [tournament?.timer?.isRunning]);
+  }, [tournament?.timer?.isRunning, isConnected]);
 
   // Initialize on mount - check for stored session
   useEffect(() => {
@@ -460,6 +484,9 @@ export function useTournament(): UseTournamentReturn {
     return () => {
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
+      }
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
