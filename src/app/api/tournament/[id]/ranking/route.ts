@@ -2,21 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getTournament, setTournament } from '@/lib/kv';
 import { Tournament, RankingAction } from '@/types/tournament';
 
-function calculateICMPrizes(totalPot: number, prizeCount: number): number[] {
-  // Simplified ICM calculation - percentages for top positions
-  const percentages: Record<number, number> = {
-    1: 0.50,
-    2: 0.30,
-    3: 0.15,
-    4: 0.04,
-    5: 0.01,
-  };
+const SNG_PCT: Record<number, number[]> = {
+  3: [0.50, 0.30, 0.20],
+  4: [0.40, 0.30, 0.20, 0.10],
+  5: [0.35, 0.25, 0.20, 0.13, 0.07],
+};
 
-  const prizes: number[] = [];
-  for (let i = 1; i <= prizeCount; i++) {
-    prizes.push(Math.floor(totalPot * (percentages[i] || 0)));
-  }
-  return prizes;
+function defaultPrizes(totalPot: number, prizeCount: number): number[] {
+  const pct = SNG_PCT[prizeCount] ?? SNG_PCT[3];
+  return pct.map(p => Math.round(totalPot * p / 5) * 5);
 }
 
 export async function POST(
@@ -46,28 +40,28 @@ export async function POST(
     }
 
     const body: RankingAction = await request.json();
-    const { positions } = body;
+    const { positions, prizes: clientPrizes } = body;
 
     // Calculate total pot
     const totalPot = tournament.players.reduce((sum, p) => {
       const buyins = p.buyins * tournament.config.buyIn;
-      const rebuys = p.rebuys * (p.rebuys > 1 ? tournament.config.rebuyDouble : tournament.config.rebuySingle);
+      const rebuys = p.rebuys > 1
+        ? (p.rebuys - 1) * tournament.config.rebuyDouble
+        : p.rebuys * tournament.config.rebuySingle;
       const addon = p.addon ? tournament.config.addon : 0;
       return sum + buyins + rebuys + addon;
     }, 0);
 
-    // Calculate prizes with ICM
-    const prizes = calculateICMPrizes(totalPot, tournament.config.prizeCount);
+    const prizes = clientPrizes ?? defaultPrizes(totalPot, tournament.config.prizeCount);
 
-    // Create ranking places
     const places = positions.map((pos, index) => ({
       position: pos.position,
       playerId: pos.playerId,
-      prize: prizes[index] || 0,
+      prize: prizes[index] ?? 0,
     }));
 
     tournament.ranking.places = places;
-    tournament.ranking.agreement = 'manual';
+    tournament.ranking.agreement = body.agreement ?? 'manual';
     tournament.state = 'finished';
 
     await setTournament(id, JSON.stringify(tournament));

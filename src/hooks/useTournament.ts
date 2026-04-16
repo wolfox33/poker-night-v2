@@ -23,8 +23,12 @@ interface UseTournamentReturn {
   timerAction: (action: 'start' | 'pause' | 'reset' | 'skip') => Promise<void>;
   addPlayer: (name: string, buyin?: number) => Promise<void>;
   removePlayer: (playerId: string) => Promise<void>;
+  rebuyPlayer: (playerId: string, rebuyType: 'single' | 'double') => Promise<void>;
+  toggleAddon: (playerId: string) => Promise<void>;
   updateConfig: (config: Partial<TournamentConfig>) => Promise<void>;
-  updateRanking: (positions: { playerId: string; position: number }[]) => Promise<void>;
+  updateRanking: (positions: { playerId: string; position: number }[], prizes?: number[], agreement?: 'none' | 'icm' | 'manual') => Promise<void>;
+  addExtra: (description: string, amount: number, paidBy: string[], splitAmong: string[]) => Promise<void>;
+  removeExtra: (extraId: string) => Promise<void>;
   logout: () => void;
 }
 
@@ -252,28 +256,108 @@ export function useTournament(): UseTournamentReturn {
     }
   }, []);
 
-  const removePlayer = useCallback(async (playerId: string) => {
+  const rebuyPlayer = useCallback(async (playerId: string, rebuyType: 'single' | 'double') => {
     const id = tournamentIdRef.current;
     const token = tokenRef.current;
-
     if (!id || !token) return;
-
     try {
       const res = await fetch(`/api/tournament/${id}/players`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'rebuy', playerId, rebuyType }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to rebuy player');
+      }
+      const data = await res.json();
+      setTournament((prev) => prev ? { ...prev, players: data.players } : null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to rebuy player');
+    }
+  }, []);
+
+  const toggleAddon = useCallback(async (playerId: string) => {
+    const id = tournamentIdRef.current;
+    const token = tokenRef.current;
+    if (!id || !token) return;
+    try {
+      const res = await fetch(`/api/tournament/${id}/players`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'addon', playerId }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to toggle addon');
+      }
+      const data = await res.json();
+      setTournament((prev) => prev ? { ...prev, players: data.players } : null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to toggle addon');
+    }
+  }, []);
+
+  const removePlayerInternal = useCallback(async (playerId: string) => {
+    const id = tournamentIdRef.current;
+    const token = tokenRef.current;
+    if (!id || !token) return;
+    try {
+      const res = await fetch(`/api/tournament/${id}/players`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ action: 'remove', playerId }),
       });
-
       if (!res.ok) {
         const data = await res.json();
         throw new Error(data.error || 'Failed to remove player');
       }
+      const data = await res.json();
+      setTournament((prev) => prev ? { ...prev, players: data.players } : null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to remove player');
+    }
+  }, []);
+
+  const addExtra = useCallback(async (description: string, amount: number, paidBy: string[], splitAmong: string[]) => {
+    const id = tournamentIdRef.current;
+    const token = tokenRef.current;
+    if (!id || !token) return;
+    try {
+      const res = await fetch(`/api/tournament/${id}/extras`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'add', description, amount, paidBy, splitAmong }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to add extra');
+      }
+      const data = await res.json();
+      setTournament((prev) => prev ? { ...prev, extras: data.extras } : null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add extra');
+    }
+  }, []);
+
+  const removeExtra = useCallback(async (extraId: string) => {
+    const id = tournamentIdRef.current;
+    const token = tokenRef.current;
+    if (!id || !token) return;
+    try {
+      const res = await fetch(`/api/tournament/${id}/extras`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'remove', extraId }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to remove extra');
+      }
+      const data = await res.json();
+      setTournament((prev) => prev ? { ...prev, extras: data.extras } : null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to remove extra');
     }
   }, []);
 
@@ -302,7 +386,7 @@ export function useTournament(): UseTournamentReturn {
     }
   }, []);
 
-  const updateRanking = useCallback(async (positions: { playerId: string; position: number }[]) => {
+  const updateRanking = useCallback(async (positions: { playerId: string; position: number }[], prizes?: number[], agreement?: 'none' | 'icm' | 'manual') => {
     const id = tournamentIdRef.current;
     const token = tokenRef.current;
 
@@ -315,7 +399,7 @@ export function useTournament(): UseTournamentReturn {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ positions }),
+        body: JSON.stringify({ positions, prizes, agreement }),
       });
 
       if (!res.ok) {
@@ -375,9 +459,13 @@ export function useTournament(): UseTournamentReturn {
     joinTournament,
     timerAction,
     addPlayer,
-    removePlayer,
+    removePlayer: removePlayerInternal,
+    rebuyPlayer,
+    toggleAddon,
     updateConfig,
     updateRanking,
+    addExtra,
+    removeExtra,
     logout,
   };
 }

@@ -1,11 +1,19 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useTournament } from '@/hooks/useTournament';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
-import { Tournament, BLINDS_LEVELS } from '@/types/tournament';
+import { BLINDS_LEVELS } from '@/types/tournament';
 
-type Tab = 'tournament' | 'timer' | 'ranking' | 'config';
+type Tab = 'tournament' | 'timer' | 'ranking' | 'config' | 'extras' | 'acerto';
+
+const SNG_PCT: Record<number, number[]> = {
+  3: [50, 30, 20],
+  4: [40, 30, 20, 10],
+  5: [35, 25, 20, 13, 7],
+};
+
+const POSITIONS = ['🥇', '🥈', '🥉', '4º', '5º'];
 
 export default function TournamentPage() {
   const params = useParams();
@@ -23,14 +31,45 @@ export default function TournamentPage() {
     timerAction,
     addPlayer,
     removePlayer,
+    rebuyPlayer,
+    toggleAddon,
     updateConfig,
     updateRanking,
+    addExtra,
+    removeExtra,
     logout,
   } = useTournament();
 
   const [activeTab, setActiveTab] = useState<Tab>('tournament');
   const [newPlayerName, setNewPlayerName] = useState('');
   const [isAddingPlayer, setIsAddingPlayer] = useState(false);
+
+  // Extras form state
+  const [extraDesc, setExtraDesc] = useState('');
+  const [extraAmount, setExtraAmount] = useState('');
+  const [extraPaidBy, setExtraPaidBy] = useState<string[]>([]);
+  const [extraSplitAmong, setExtraSplitAmong] = useState<string[]>([]);
+
+  // Ranking state
+  const [rankingPositions, setRankingPositions] = useState<string[]>([]);
+  const [rankingMode, setRankingMode] = useState<'none' | 'icm' | 'manual'>('none');
+  const [rankingChips, setRankingChips] = useState<number[]>([]);
+  const [rankingManual, setRankingManual] = useState<number[]>([]);
+
+  // Rebuy modal
+  const [rebuyPlayerId, setRebuyPlayerId] = useState<string | null>(null);
+
+  // Sync rankingPositions length with prizeCount
+  useEffect(() => {
+    if (!tournament) return;
+    const count = tournament.config.prizeCount;
+    setRankingPositions((prev) => {
+      if (prev.length === count) return prev;
+      return Array(count).fill('');
+    });
+    setRankingChips(Array(count).fill(0));
+    setRankingManual(Array(count).fill(0));
+  }, [tournament?.config.prizeCount]);
 
   useEffect(() => {
     // If no tournament loaded and not loading, redirect to home
@@ -81,7 +120,17 @@ export default function TournamentPage() {
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const formatTimeLong = (seconds: number) => {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
   const currentBlinds = BLINDS_LEVELS[tournament.timer.currentLevel - 1];
+  const nextBlinds = BLINDS_LEVELS[tournament.timer.currentLevel] ?? null;
+  const levelDurationSecs = tournament.config.levelDuration * 60;
+  const progressPct = Math.max(0, Math.min(100, ((levelDurationSecs - tournament.timer.timeRemaining) / levelDurationSecs) * 100));
 
   const handleAddPlayer = async () => {
     if (!newPlayerName.trim()) return;
@@ -91,16 +140,108 @@ export default function TournamentPage() {
     setIsAddingPlayer(false);
   };
 
-  const calculateTotalPot = () => {
-    return tournament.players.reduce((sum, p) => {
-      const buyins = p.buyins * tournament.config.buyIn;
-      const rebuys = p.rebuys > 1 
-        ? (p.rebuys - 1) * tournament.config.rebuyDouble 
-        : p.rebuys * tournament.config.rebuySingle;
-      const addon = p.addon ? tournament.config.addon : 0;
-      return sum + buyins + rebuys + addon;
-    }, 0);
+  const calcPlayerCost = (p: typeof tournament.players[0]) => {
+    const buyins = p.buyins * tournament.config.buyIn;
+    const rebuys = p.rebuys > 1
+      ? (p.rebuys - 1) * tournament.config.rebuyDouble
+      : p.rebuys * tournament.config.rebuySingle;
+    const addon = p.addon ? tournament.config.addon : 0;
+    return buyins + rebuys + addon;
   };
+
+  const totalPot = tournament.players.reduce((sum, p) => sum + calcPlayerCost(p), 0);
+
+  const prizePreview = useMemo(() => {
+    const pct = SNG_PCT[tournament.config.prizeCount] ?? SNG_PCT[3];
+    return pct.map((p) => Math.round(totalPot * p / 100 / 5) * 5);
+  }, [totalPot, tournament.config.prizeCount]);
+
+  function calcICM(chips: number[], prizes: number[]): number[] {
+    const n = chips.length;
+    const totalChips = chips.reduce((a, b) => a + b, 0);
+    if (totalChips === 0 || n === 0) return prizes.map(() => 0);
+    const equities = Array(n).fill(0);
+    function recurse(remaining: number[], ranking: number[], prob: number) {
+      if (remaining.length === 0) {
+        ranking.forEach((idx, pos) => { equities[idx] += prob * (prizes[pos] ?? 0); });
+        return;
+      }
+      const tot = remaining.reduce((a, i) => a + chips[i], 0);
+      for (let i = 0; i < remaining.length; i++) {
+        const idx = remaining[i];
+        recurse(remaining.filter((_, j) => j !== i), [...ranking, idx], prob * chips[idx] / tot);
+      }
+    }
+    recurse(Array.from({ length: n }, (_, i) => i), [], 1);
+    return equities;
+  }
+
+  const calculatedPrizes = useMemo(() => {
+    const pct = SNG_PCT[tournament.config.prizeCount] ?? SNG_PCT[3];
+    const prizes = pct.map((p) => totalPot * p / 100);
+    if (rankingMode === 'icm' && rankingChips.some(c => c > 0)) {
+      const icm = calcICM(rankingChips, prizes);
+      return icm.map(v => Math.round(v / 5) * 5);
+    }
+    if (rankingMode === 'manual') {
+      return rankingManual;
+    }
+    return prizes.map(v => Math.round(v / 5) * 5);
+  }, [rankingMode, rankingChips, rankingManual, totalPot, tournament.config.prizeCount]);
+
+  const handleAddExtra = async () => {
+    const amount = parseFloat(extraAmount);
+    if (!extraDesc.trim() || !amount || extraSplitAmong.length === 0) return;
+    await addExtra(extraDesc.trim(), amount, extraPaidBy, extraSplitAmong);
+    setExtraDesc('');
+    setExtraAmount('');
+    setExtraPaidBy([]);
+    setExtraSplitAmong([]);
+  };
+
+  const handleFinishRanking = async () => {
+    const positions = rankingPositions.map((playerId, i) => ({ playerId, position: i + 1 }))
+      .filter(p => p.playerId);
+    if (positions.length !== tournament.config.prizeCount) return;
+    await updateRanking(positions, calculatedPrizes, rankingMode);
+  };
+
+  const settlementData = useMemo(() => {
+    if (!tournament) return null;
+    const resumo: Record<string, { gastoTorneio: number; extrasAPagar: number; extrasPagos: number; recebeu: number }> = {};
+    tournament.players.forEach(p => {
+      resumo[p.id] = { gastoTorneio: calcPlayerCost(p), extrasAPagar: 0, extrasPagos: 0, recebeu: 0 };
+    });
+    tournament.extras.forEach(extra => {
+      const share = extra.amount / extra.splitAmong.length;
+      const paid = extra.paidBy.length > 0 ? extra.amount / extra.paidBy.length : 0;
+      extra.splitAmong.forEach(id => { if (resumo[id]) resumo[id].extrasAPagar += share; });
+      extra.paidBy.forEach(id => { if (resumo[id]) resumo[id].extrasPagos += paid; });
+    });
+    tournament.ranking.places.forEach(place => {
+      if (resumo[place.playerId]) resumo[place.playerId].recebeu = place.prize;
+    });
+    const saldos: Record<string, number> = {};
+    Object.keys(resumo).forEach(id => {
+      const r = resumo[id];
+      saldos[id] = r.recebeu + r.extrasPagos - r.extrasAPagar - r.gastoTorneio;
+    });
+    const devedores = Object.entries(saldos).filter(([, v]) => v < -0.01).map(([id, v]) => ({ id, valor: -v })).sort((a, b) => b.valor - a.valor);
+    const credores = Object.entries(saldos).filter(([, v]) => v > 0.01).map(([id, v]) => ({ id, valor: v })).sort((a, b) => b.valor - a.valor);
+    const transacoes: { de: string; para: string; valor: number }[] = [];
+    const d = devedores.map(x => ({ ...x }));
+    const c = credores.map(x => ({ ...x }));
+    while (d.length > 0 && c.length > 0) {
+      const val = Math.min(d[0].valor, c[0].valor);
+      if (val > 0.01) transacoes.push({ de: d[0].id, para: c[0].id, valor: Math.round(val / 5) * 5 });
+      d[0].valor -= val; c[0].valor -= val;
+      if (d[0].valor < 0.01) d.shift();
+      if (c[0].valor < 0.01) c.shift();
+    }
+    return { resumo, saldos, transacoes };
+  }, [tournament]);
+
+  const playerName = (id: string) => tournament.players.find(p => p.id === id)?.name ?? id;
 
   return (
     <div className="min-h-screen p-4">
@@ -136,34 +277,56 @@ export default function TournamentPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-2 mb-6 overflow-x-auto">
-        {(['tournament', 'timer', 'ranking', 'config'] as Tab[]).map((tab) => (
+      <div className="flex gap-2 mb-6 overflow-x-auto pb-1">
+        {([ 
+          ['tournament', 'Torneio'],
+          ['timer', 'Timer'],
+          ['ranking', 'Ranking'],
+          ['config', 'Config'],
+          ['extras', 'Extras'],
+          ['acerto', 'Acerto'],
+        ] as [Tab, string][]).map(([tab, label]) => (
           <button
             key={tab}
             onClick={() => setActiveTab(tab)}
             className={`px-4 py-2 rounded-lg text-sm whitespace-nowrap ${
-              activeTab === tab
-                ? 'bg-[var(--accent)] text-black'
-                : 'glass text-[var(--text-muted)]'
+              activeTab === tab ? 'bg-[var(--accent)] text-black font-bold' : 'glass text-[var(--text-muted)]'
             }`}
           >
-            {tab === 'tournament' ? 'Jogadores' : 
-             tab === 'timer' ? 'Timer' : 
-             tab === 'ranking' ? 'Ranking' : 'Config'}
+            {label}
           </button>
         ))}
       </div>
 
       {/* Tab Content */}
       <div className="glass p-4">
+
+        {/* ── TORNEIO TAB ── */}
         {activeTab === 'tournament' && (
           <div>
-            <div className="flex justify-between items-center mb-4">
-              <h2>Jogadores ({tournament.players.length})</h2>
-              <div className="text-lg font-bold text-[var(--accent)]">
-                Total: R$ {calculateTotalPot()}
+            {/* Summary */}
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div className="glass-card text-center">
+                <div className="text-xs text-[var(--text-muted)] mb-1">Total Arrecadado</div>
+                <div className="text-2xl font-bold text-[var(--accent)]">R$ {totalPot}</div>
+              </div>
+              <div className="glass-card text-center">
+                <div className="text-xs text-[var(--text-muted)] mb-1">Jogadores</div>
+                <div className="text-2xl font-bold text-[var(--accent)]">{tournament.players.length}</div>
               </div>
             </div>
+
+            {/* Prize preview */}
+            {tournament.players.length > 0 && (
+              <div className="flex gap-2 mb-4">
+                {prizePreview.map((v, i) => (
+                  <div key={i} className="flex-1 glass-card text-center py-2">
+                    <div className="text-lg">{POSITIONS[i]}</div>
+                    <div className="text-sm font-bold text-[var(--accent)]">R$ {v}</div>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {canEdit && (
               <div className="flex gap-2 mb-4">
@@ -176,146 +339,139 @@ export default function TournamentPage() {
                   maxLength={20}
                   onKeyDown={(e) => e.key === 'Enter' && handleAddPlayer()}
                 />
-                <button
-                  onClick={handleAddPlayer}
-                  disabled={isAddingPlayer || !newPlayerName.trim()}
-                  className="btn btn-primary"
-                >
-                  +
-                </button>
+                <button onClick={handleAddPlayer} disabled={isAddingPlayer || !newPlayerName.trim()} className="btn btn-primary">+</button>
               </div>
             )}
 
             <div className="space-y-2">
-              {tournament.players.map((player) => {
-                const buyinsText = player.buyins === 1 ? '1 buy' : `${player.buyins} buys`;
-                const rebuysText = player.rebuys > 0 ? (player.rebuys === 1 ? ', 1 rebuy' : `, ${player.rebuys} rebuys`) : '';
-                const addonText = player.addon ? ', addon' : '';
-                
-                return (
-                <div key={player.id} className="glass-card flex justify-between items-center">
-                  <div>
-                    <span className="font-medium">{player.name}</span>
-                    <span className="text-[var(--text-muted)] text-sm ml-2">
-                      ({buyinsText}{rebuysText}{addonText})
-                    </span>
+              {tournament.players.map((player) => (
+                <div key={player.id} className="glass-card">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="font-medium text-[var(--accent)]">{player.name}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold">R$ {calcPlayerCost(player)}</span>
+                      {canEdit && (
+                        <button onClick={() => removePlayer(player.id)} className="text-[var(--danger)] text-xl hover:opacity-70">×</button>
+                      )}
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-[var(--accent)] font-bold">
-                      R$ {player.buyins * tournament.config.buyIn + 
-                         (player.rebuys > 1 ? (player.rebuys - 1) * tournament.config.rebuyDouble : player.rebuys * tournament.config.rebuySingle) +
-                         (player.addon ? tournament.config.addon : 0)}
-                    </span>
-                    {canEdit && (
-                      <button
-                        onClick={() => removePlayer(player.id)}
-                        className="text-[var(--danger)] text-xl hover:opacity-70"
-                      >
-                        ×
-                      </button>
+                  <div className="flex flex-wrap gap-1 mb-2">
+                    <span className="px-2 py-0.5 rounded text-xs bg-[var(--accent)] text-black font-bold">Entrada</span>
+                    {player.rebuys > 0 && (
+                      <span className="px-2 py-0.5 rounded text-xs bg-orange-500 text-white font-bold">{player.rebuys}x Rebuy</span>
+                    )}
+                    {player.addon && (
+                      <span className="px-2 py-0.5 rounded text-xs bg-green-500 text-white font-bold">Addon</span>
                     )}
                   </div>
+                  {canEdit && (
+                    <div className="flex gap-2">
+                      <button onClick={() => setRebuyPlayerId(player.id)} className="btn btn-secondary text-xs py-1">Rebuy</button>
+                      <button
+                        onClick={() => toggleAddon(player.id)}
+                        className={`btn text-xs py-1 ${player.addon ? 'btn-danger' : 'btn-secondary'}`}
+                      >
+                        {player.addon ? 'Remover Addon' : '+ Addon'}
+                      </button>
+                    </div>
+                  )}
                 </div>
-                );
-              })}
-
+              ))}
               {tournament.players.length === 0 && (
-                <p className="text-center text-[var(--text-muted)] py-8">
-                  Nenhum jogador ainda
-                </p>
+                <p className="text-center text-[var(--text-muted)] py-8">Nenhum jogador ainda</p>
               )}
             </div>
           </div>
         )}
 
+        {/* ── TIMER TAB ── */}
         {activeTab === 'timer' && (
           <div>
-            <div className="text-center mb-6">
-              <div className="text-[var(--text-muted)] text-sm mb-2">
-                Nível {tournament.timer.currentLevel} / 27
-              </div>
-              <div className="text-6xl font-bold text-[var(--accent)] neon-text mb-2">
-                {formatTime(tournament.timer.timeRemaining)}
+            <div className="text-center mb-4 glass-card">
+              <div className="text-sm text-[var(--text-muted)] mb-1 tracking-widest">
+                NÍVEL {tournament.timer.currentLevel} / 27
               </div>
               {currentBlinds && (
-                <div className="text-xl">
-                  <span className="text-[var(--accent)]">{currentBlinds.smallBlind}</span>
-                  {' / '}
-                  <span className="text-[var(--accent)]">{currentBlinds.bigBlind}</span>
+                <div className="flex justify-center gap-8 mb-2">
+                  <span className="text-[var(--text-muted)] text-xl font-bold">SB: {currentBlinds.smallBlind}</span>
+                  <span className="text-[var(--accent)] text-xl font-bold neon-text">BB: {currentBlinds.bigBlind}</span>
                 </div>
               )}
-              <div className="text-sm text-[var(--text-muted)] mt-2">
-                Total: {formatTime(tournament.timer.totalElapsed)}
+              <div className="text-7xl font-bold text-white neon-text my-3 tracking-widest">
+                {formatTime(tournament.timer.timeRemaining)}
+              </div>
+              {/* Progress bar */}
+              <div className="h-2 rounded-full overflow-hidden mb-2" style={{ background: 'rgba(255,255,255,0.1)' }}>
+                <div
+                  className="h-full rounded-full transition-all duration-1000"
+                  style={{ width: `${progressPct}%`, background: 'linear-gradient(90deg, var(--accent-dark), var(--accent))' }}
+                />
+              </div>
+              {nextBlinds && (
+                <div className="text-xs text-[var(--text-muted)]">
+                  Próximo: <span className="text-[var(--accent)]">{nextBlinds.smallBlind}/{nextBlinds.bigBlind}</span>
+                  {' em '}<span className="text-[var(--accent)]">{formatTime(tournament.timer.timeRemaining)}</span>
+                </div>
+              )}
+              <div className="text-xs text-[var(--text-muted)] mt-1">
+                Total: {formatTimeLong(tournament.timer.totalElapsed)}
               </div>
             </div>
 
             {canEdit && (
-              <div className="flex gap-2 justify-center">
+              <div className="flex gap-2 justify-center mb-6">
                 {!tournament.timer.isRunning ? (
-                  <button
-                    onClick={() => timerAction('start')}
-                    className="btn btn-primary"
-                  >
-                    ▶ Iniciar
-                  </button>
+                  <button onClick={() => timerAction('start')} className="btn btn-primary flex-1">▶ Iniciar</button>
                 ) : (
-                  <button
-                    onClick={() => timerAction('pause')}
-                    className="btn btn-secondary"
-                  >
-                    ⏸ Pausar
-                  </button>
+                  <button onClick={() => timerAction('pause')} className="btn btn-secondary flex-1">⏸ Pausar</button>
                 )}
-                <button
-                  onClick={() => timerAction('skip')}
-                  disabled={tournament.timer.currentLevel >= 27}
-                  className="btn btn-secondary"
-                >
-                  → Pular
-                </button>
-                <button
-                  onClick={() => timerAction('reset')}
-                  className="btn btn-danger"
-                >
-                  ↺
-                </button>
+                <button onClick={() => timerAction('skip')} disabled={tournament.timer.currentLevel >= 27} className="btn btn-secondary flex-1">→ Próx. Nível</button>
+                <button onClick={() => timerAction('reset')} className="btn btn-danger">↺</button>
               </div>
             )}
 
-            {/* Blinds Levels */}
-            <div className="mt-8">
-              <h3 className="text-sm text-[var(--text-muted)] mb-2">Blinds</h3>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-[var(--text-muted)]">
-                      <th className="text-left py-2">N</th>
-                      <th className="text-right py-2">SB</th>
-                      <th className="text-right py-2">BB</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {BLINDS_LEVELS.map((level) => (
-                      <tr
-                        key={level.level}
-                        className={level.level === tournament.timer.currentLevel ? 'text-[var(--accent)]' : 'text-[var(--text-muted)]'}
-                      >
-                        <td className="py-1">{level.level}</td>
-                        <td className="text-right">{level.smallBlind}</td>
-                        <td className="text-right">{level.bigBlind}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+            {/* Stats row */}
+            <div className="grid grid-cols-2 gap-3 mb-6">
+              <div className="glass-card text-center">
+                <div className="text-xs text-[var(--text-muted)] mb-1">Tempo Total</div>
+                <div className="font-bold text-[var(--accent)]">{formatTimeLong(tournament.timer.totalElapsed)}</div>
               </div>
+              <div className="glass-card text-center">
+                <div className="text-xs text-[var(--text-muted)] mb-1">Nível Atual</div>
+                <div className="font-bold text-[var(--accent)]">{tournament.timer.currentLevel} / 27</div>
+              </div>
+            </div>
+
+            {/* Blinds table */}
+            <h3 className="text-sm text-[var(--text-muted)] mb-2">Tabela de Blinds</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-[var(--text-muted)]">
+                    <th className="text-left py-2">N</th>
+                    <th className="text-right py-2">SB</th>
+                    <th className="text-right py-2">BB</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {BLINDS_LEVELS.map((level) => (
+                    <tr key={level.level} className={level.level === tournament.timer.currentLevel ? 'text-[var(--accent)] font-bold' : 'text-[var(--text-muted)]'}>
+                      <td className="py-1">{level.level}</td>
+                      <td className="text-right">{level.smallBlind}</td>
+                      <td className="text-right">{level.bigBlind}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         )}
 
+        {/* ── RANKING TAB ── */}
         {activeTab === 'ranking' && (
           <div>
             <h2 className="mb-4">Ranking Final</h2>
-            
+
             {tournament.state === 'finished' ? (
               <div className="space-y-2">
                 {tournament.ranking.places.map((place) => {
@@ -323,7 +479,7 @@ export default function TournamentPage() {
                   return (
                     <div key={place.position} className="glass-card flex justify-between items-center">
                       <div>
-                        <span className="text-[var(--accent)] font-bold">#{place.position}</span>
+                        <span className="text-[var(--accent)] font-bold">{POSITIONS[place.position - 1]}</span>
                         <span className="ml-2">{player?.name}</span>
                       </div>
                       <span className="text-[var(--accent)] font-bold">R$ {place.prize}</span>
@@ -331,123 +487,299 @@ export default function TournamentPage() {
                   );
                 })}
               </div>
+            ) : canEdit ? (
+              <div className="space-y-4">
+                <div className="text-sm text-[var(--text-muted)] mb-2">
+                  Total do prêmio: <span className="text-[var(--accent)] font-bold">R$ {totalPot}</span>
+                </div>
+
+                {/* Position selects */}
+                {rankingPositions.map((val, i) => (
+                  <div key={i}>
+                    <label className="block text-sm text-[var(--text-muted)] mb-1">{POSITIONS[i]} Lugar</label>
+                    <select
+                      value={val}
+                      onChange={(e) => {
+                        const next = [...rankingPositions];
+                        next[i] = e.target.value;
+                        setRankingPositions(next);
+                      }}
+                      className="input"
+                    >
+                      <option value="">-- Selecione --</option>
+                      {tournament.players.map(p => (
+                        <option key={p.id} value={p.id}>{p.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+
+                {/* Agreement mode */}
+                <div>
+                  <label className="block text-sm text-[var(--text-muted)] mb-1">Acordo</label>
+                  <select value={rankingMode} onChange={(e) => setRankingMode(e.target.value as typeof rankingMode)} className="input">
+                    <option value="none">Sem acordo (SNG %)</option>
+                    <option value="icm">Acordo ICM</option>
+                    <option value="manual">Acordo Manual</option>
+                  </select>
+                </div>
+
+                {rankingMode === 'icm' && (
+                  <div className="space-y-2">
+                    <div className="text-xs text-[var(--text-muted)]">Fichas de cada jogador do acordo:</div>
+                    {rankingPositions.map((pid, i) => (
+                      <div key={i}>
+                        <label className="block text-xs text-[var(--text-muted)] mb-1">{playerName(pid) || `${i + 1}º`}</label>
+                        <input type="number" placeholder="Fichas" className="input" value={rankingChips[i] || ''} onChange={(e) => { const n = [...rankingChips]; n[i] = Number(e.target.value); setRankingChips(n); }} />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {rankingMode === 'manual' && (
+                  <div className="space-y-2">
+                    <div className="text-xs text-[var(--text-muted)]">Valor para cada jogador:</div>
+                    {rankingPositions.map((pid, i) => (
+                      <div key={i}>
+                        <label className="block text-xs text-[var(--text-muted)] mb-1">{playerName(pid) || `${i + 1}º`} (R$)</label>
+                        <input type="number" placeholder="0" className="input" value={rankingManual[i] || ''} onChange={(e) => { const n = [...rankingManual]; n[i] = Number(e.target.value); setRankingManual(n); }} />
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Calculated prizes preview */}
+                <div className="glass-card">
+                  <div className="text-xs text-[var(--text-muted)] mb-2">Premiação calculada:</div>
+                  {calculatedPrizes.map((v, i) => (
+                    <div key={i} className="flex justify-between text-sm py-1 border-b border-white/10 last:border-0">
+                      <span>{POSITIONS[i]} {playerName(rankingPositions[i])}</span>
+                      <span className="text-[var(--accent)] font-bold">R$ {v}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <button
+                  onClick={handleFinishRanking}
+                  disabled={rankingPositions.some(p => !p)}
+                  className="btn btn-primary w-full"
+                >
+                  Finalizar Torneio
+                </button>
+              </div>
             ) : (
               <p className="text-center text-[var(--text-muted)] py-8">
                 O ranking será disponível após o término do torneio
               </p>
             )}
-
-            {canEdit && tournament.state === 'running' && (
-              <button
-                onClick={() => {
-                  const positions = tournament.players.map((p, i) => ({
-                    playerId: p.id,
-                    position: i + 1,
-                  }));
-                  updateRanking(positions);
-                }}
-                className="btn btn-primary w-full mt-4"
-              >
-                Finalizar Torneio
-              </button>
-            )}
           </div>
         )}
 
+        {/* ── CONFIG TAB ── */}
         {activeTab === 'config' && (
           <div>
             <h2 className="mb-4">Configurações</h2>
-
             {canEdit ? (
               <div className="space-y-4">
+                {[
+                  ['Buy-in (R$)', 'buyIn', tournament.config.buyIn],
+                  ['Rebuy Simples (R$)', 'rebuySingle', tournament.config.rebuySingle],
+                  ['Rebuy Duplo (R$)', 'rebuyDouble', tournament.config.rebuyDouble],
+                  ['Addon (R$)', 'addon', tournament.config.addon],
+                  ['Minutos por Nível', 'levelDuration', tournament.config.levelDuration],
+                ].map(([label, key, val]) => (
+                  <div key={key as string}>
+                    <label className="block text-sm text-[var(--text-muted)] mb-2">{label as string}</label>
+                    <input type="number" defaultValue={val as number} onBlur={(e) => updateConfig({ [key as string]: Number(e.target.value) })} className="input" />
+                  </div>
+                ))}
                 <div>
-                  <label className="block text-sm text-[var(--text-muted)] mb-2">Buy-in (R$)</label>
-                  <input
-                    type="number"
-                    value={tournament.config.buyIn}
-                    onChange={(e) => updateConfig({ buyIn: Number(e.target.value) })}
-                    className="input"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-[var(--text-muted)] mb-2">Rebuy Simples (R$)</label>
-                  <input
-                    type="number"
-                    value={tournament.config.rebuySingle}
-                    onChange={(e) => updateConfig({ rebuySingle: Number(e.target.value) })}
-                    className="input"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-[var(--text-muted)] mb-2">Rebuy Duplo (R$)</label>
-                  <input
-                    type="number"
-                    value={tournament.config.rebuyDouble}
-                    onChange={(e) => updateConfig({ rebuyDouble: Number(e.target.value) })}
-                    className="input"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-[var(--text-muted)] mb-2">Addon (R$)</label>
-                  <input
-                    type="number"
-                    value={tournament.config.addon}
-                    onChange={(e) => updateConfig({ addon: Number(e.target.value) })}
-                    className="input"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-[var(--text-muted)] mb-2">Premiados</label>
-                  <input
-                    type="number"
-                    min={3}
-                    max={5}
-                    value={tournament.config.prizeCount}
-                    onChange={(e) => updateConfig({ prizeCount: Number(e.target.value) })}
-                    className="input"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm text-[var(--text-muted)] mb-2">Minutos por Nível</label>
-                  <input
-                    type="number"
-                    value={tournament.config.levelDuration}
-                    onChange={(e) => updateConfig({ levelDuration: Number(e.target.value) })}
-                    className="input"
-                  />
+                  <label className="block text-sm text-[var(--text-muted)] mb-2">Premiados (3–5)</label>
+                  <select value={tournament.config.prizeCount} onChange={(e) => updateConfig({ prizeCount: Number(e.target.value) })} className="input">
+                    <option value={3}>3</option>
+                    <option value={4}>4</option>
+                    <option value={5}>5</option>
+                  </select>
                 </div>
               </div>
             ) : (
               <div className="space-y-2">
-                <div className="glass-card flex justify-between">
-                  <span className="text-[var(--text-muted)]">Buy-in</span>
-                  <span>R$ {tournament.config.buyIn}</span>
-                </div>
-                <div className="glass-card flex justify-between">
-                  <span className="text-[var(--text-muted)]">Rebuy Simples</span>
-                  <span>R$ {tournament.config.rebuySingle}</span>
-                </div>
-                <div className="glass-card flex justify-between">
-                  <span className="text-[var(--text-muted)]">Rebuy Duplo</span>
-                  <span>R$ {tournament.config.rebuyDouble}</span>
-                </div>
-                <div className="glass-card flex justify-between">
-                  <span className="text-[var(--text-muted)]">Addon</span>
-                  <span>R$ {tournament.config.addon}</span>
-                </div>
-                <div className="glass-card flex justify-between">
-                  <span className="text-[var(--text-muted)]">Premiados</span>
-                  <span>{tournament.config.prizeCount}</span>
-                </div>
-                <div className="glass-card flex justify-between">
-                  <span className="text-[var(--text-muted)]">Minutos/Nível</span>
-                  <span>{tournament.config.levelDuration}</span>
-                </div>
+                {[
+                  ['Buy-in', `R$ ${tournament.config.buyIn}`],
+                  ['Rebuy Simples', `R$ ${tournament.config.rebuySingle}`],
+                  ['Rebuy Duplo', `R$ ${tournament.config.rebuyDouble}`],
+                  ['Addon', `R$ ${tournament.config.addon}`],
+                  ['Premiados', String(tournament.config.prizeCount)],
+                  ['Minutos/Nível', String(tournament.config.levelDuration)],
+                ].map(([l, v]) => (
+                  <div key={l} className="glass-card flex justify-between">
+                    <span className="text-[var(--text-muted)]">{l}</span>
+                    <span>{v}</span>
+                  </div>
+                ))}
               </div>
             )}
           </div>
         )}
+
+        {/* ── EXTRAS TAB ── */}
+        {activeTab === 'extras' && (
+          <div>
+            <h2 className="mb-4">Janta & Bebidas</h2>
+
+            <div className="glass-card text-center mb-4">
+              <div className="text-xs text-[var(--text-muted)]">Total Extras</div>
+              <div className="text-2xl font-bold text-[var(--accent)]">
+                R$ {tournament.extras.reduce((s, e) => s + e.amount, 0).toFixed(2)}
+              </div>
+            </div>
+
+            {canEdit && (
+              <div className="space-y-3 mb-6">
+                <div>
+                  <label className="block text-sm text-[var(--text-muted)] mb-1">Descrição</label>
+                  <input type="text" value={extraDesc} onChange={(e) => setExtraDesc(e.target.value)} placeholder="Ex: Pizzas, Cervejas..." className="input" />
+                </div>
+                <div>
+                  <label className="block text-sm text-[var(--text-muted)] mb-1">Valor (R$)</label>
+                  <input type="number" value={extraAmount} onChange={(e) => setExtraAmount(e.target.value)} placeholder="0.00" step="0.01" className="input" />
+                </div>
+                <div>
+                  <label className="block text-sm text-[var(--text-muted)] mb-1">Quem pagou:</label>
+                  <div className="flex flex-wrap gap-2">
+                    {tournament.players.map(p => (
+                      <label key={p.id} className={`px-3 py-1 rounded cursor-pointer text-sm ${extraPaidBy.includes(p.id) ? 'bg-[var(--accent)] text-black font-bold' : 'glass'}`}>
+                        <input type="checkbox" className="hidden" checked={extraPaidBy.includes(p.id)} onChange={(e) => setExtraPaidBy(e.target.checked ? [...extraPaidBy, p.id] : extraPaidBy.filter(x => x !== p.id))} />
+                        {p.name}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm text-[var(--text-muted)] mb-1">Dividir entre:</label>
+                  <div className="flex flex-wrap gap-2">
+                    {tournament.players.map(p => (
+                      <label key={p.id} className={`px-3 py-1 rounded cursor-pointer text-sm ${extraSplitAmong.includes(p.id) ? 'bg-[var(--accent)] text-black font-bold' : 'glass'}`}>
+                        <input type="checkbox" className="hidden" checked={extraSplitAmong.includes(p.id)} onChange={(e) => setExtraSplitAmong(e.target.checked ? [...extraSplitAmong, p.id] : extraSplitAmong.filter(x => x !== p.id))} />
+                        {p.name}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <button onClick={handleAddExtra} disabled={!extraDesc.trim() || !extraAmount || extraSplitAmong.length === 0} className="btn btn-primary w-full">
+                  Adicionar Item
+                </button>
+              </div>
+            )}
+
+            <h3 className="text-sm text-[var(--text-muted)] mb-2">Itens</h3>
+            <div className="space-y-2">
+              {tournament.extras.length === 0 && (
+                <p className="text-center text-[var(--text-muted)] py-8">Nenhum item adicionado</p>
+              )}
+              {tournament.extras.map((extra) => (
+                <div key={extra.id} className="glass-card">
+                  <div className="flex justify-between items-start mb-1">
+                    <span className="font-medium">{extra.description}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[var(--accent)] font-bold">R$ {extra.amount.toFixed(2)}</span>
+                      {canEdit && (
+                        <button onClick={() => removeExtra(extra.id)} className="text-[var(--danger)] text-lg hover:opacity-70">×</button>
+                      )}
+                    </div>
+                  </div>
+                  {extra.paidBy.length > 0 && (
+                    <div className="text-xs text-green-400">Pagou: {extra.paidBy.map(id => playerName(id)).join(', ')}</div>
+                  )}
+                  <div className="text-xs text-[var(--text-muted)]">
+                    Divide: {extra.splitAmong.map(id => playerName(id)).join(', ')} (R$ {(extra.amount / extra.splitAmong.length).toFixed(2)} cada)
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── ACERTO TAB ── */}
+        {activeTab === 'acerto' && (
+          <div>
+            <h2 className="mb-4">Acerto de Contas</h2>
+
+            {!settlementData || tournament.ranking.places.length === 0 ? (
+              <p className="text-center text-[var(--text-muted)] py-8">
+                Finalize o torneio na aba Ranking para calcular o acerto
+              </p>
+            ) : (
+              <>
+                <h3 className="text-sm text-[var(--text-muted)] mb-2">Resumo por Jogador</h3>
+                <div className="space-y-2 mb-6">
+                  {tournament.players.map(p => {
+                    const r = settlementData.resumo[p.id];
+                    const saldo = settlementData.saldos[p.id];
+                    if (!r) return null;
+                    return (
+                      <div key={p.id} className={`glass-card border-l-4 ${saldo >= 0 ? 'border-green-500' : 'border-red-500'}`}>
+                        <div className="flex justify-between items-start mb-2">
+                          <span className="font-bold">{p.name}</span>
+                          <span className={`text-lg font-bold ${saldo >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                            {saldo >= 0 ? '+' : ''}R$ {saldo.toFixed(2)}
+                          </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-1 text-xs text-[var(--text-muted)]">
+                          <span>Torneio: R$ {r.gastoTorneio.toFixed(2)}</span>
+                          <span className="text-[var(--accent)]">Prêmio: R$ {r.recebeu.toFixed(2)}</span>
+                          <span className="text-red-400">Extras a pagar: R$ {r.extrasAPagar.toFixed(2)}</span>
+                          <span className="text-green-400">Extras pagos: R$ {r.extrasPagos.toFixed(2)}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <h3 className="text-sm text-[var(--text-muted)] mb-2">Transações</h3>
+                {settlementData.transacoes.length === 0 ? (
+                  <p className="text-center text-green-400 py-4">Todos acertados!</p>
+                ) : (
+                  <div className="space-y-2">
+                    {settlementData.transacoes.map((t, i) => (
+                      <div key={i} className="glass-card border-l-4 border-yellow-500 flex justify-between items-center">
+                        <span className="text-sm">{playerName(t.de)} → {playerName(t.para)}</span>
+                        <span className="text-[var(--accent)] font-bold">R$ {t.valor.toFixed(2)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        )}
       </div>
+
+      {/* Rebuy Modal */}
+      {rebuyPlayerId && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="glass p-6 rounded-xl w-full max-w-sm">
+            <h2 className="mb-4">Rebuy — {playerName(rebuyPlayerId)}</h2>
+            <div className="space-y-3">
+              <button
+                onClick={() => { rebuyPlayer(rebuyPlayerId, 'single'); setRebuyPlayerId(null); }}
+                className="btn btn-secondary w-full text-left"
+              >
+                <span className="font-bold text-[var(--accent)]">Simples</span>
+                <span className="text-[var(--text-muted)] ml-2">(R$ {tournament.config.rebuySingle})</span>
+              </button>
+              <button
+                onClick={() => { rebuyPlayer(rebuyPlayerId, 'double'); setRebuyPlayerId(null); }}
+                className="btn btn-secondary w-full text-left"
+              >
+                <span className="font-bold text-[var(--accent)]">Duplo</span>
+                <span className="text-[var(--text-muted)] ml-2">(R$ {tournament.config.rebuyDouble})</span>
+              </button>
+              <button onClick={() => setRebuyPlayerId(null)} className="btn btn-danger w-full">Cancelar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

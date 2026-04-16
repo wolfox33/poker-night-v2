@@ -43,7 +43,7 @@ export interface ExtraExpense {
   id: string;
   description: string;
   amount: number;
-  paidBy: string;
+  paidBy: string[];
   splitAmong: string[];
 }
 
@@ -84,14 +84,26 @@ export interface TimerAction {
 }
 
 export interface PlayerAction {
-  action: 'add' | 'remove';
+  action: 'add' | 'remove' | 'rebuy' | 'addon';
   playerId?: string;
   name?: string;
   buyin?: number;
+  rebuyType?: 'single' | 'double';
+}
+
+export interface ExtrasAction {
+  action: 'add' | 'remove';
+  extraId?: string;
+  description?: string;
+  amount?: number;
+  paidBy?: string[];
+  splitAmong?: string[];
 }
 
 export interface RankingAction {
   positions: { playerId: string; position: number }[];
+  prizes?: number[];
+  agreement?: RankingAgreement;
 }
 
 export const DEFAULT_CONFIG: TournamentConfig = {

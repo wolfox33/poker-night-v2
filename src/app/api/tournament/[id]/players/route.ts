@@ -32,7 +32,7 @@ export async function POST(
     }
 
     const body: PlayerAction = await request.json();
-    const { action, playerId, name, buyin } = body;
+    const { action, playerId, name, buyin, rebuyType } = body;
 
     switch (action) {
       case 'add':
@@ -75,6 +75,36 @@ export async function POST(
 
         tournament.players = tournament.players.filter(p => p.id !== playerId);
         break;
+
+      case 'rebuy': {
+        if (!playerId) {
+          return NextResponse.json(
+            { error: 'Player ID is required' },
+            { status: 400 }
+          );
+        }
+        const rebuyPlayer = tournament.players.find(p => p.id === playerId);
+        if (!rebuyPlayer) {
+          return NextResponse.json({ error: 'Player not found' }, { status: 404 });
+        }
+        rebuyPlayer.rebuys += rebuyType === 'double' ? 2 : 1;
+        break;
+      }
+
+      case 'addon': {
+        if (!playerId) {
+          return NextResponse.json(
+            { error: 'Player ID is required' },
+            { status: 400 }
+          );
+        }
+        const addonPlayer = tournament.players.find(p => p.id === playerId);
+        if (!addonPlayer) {
+          return NextResponse.json({ error: 'Player not found' }, { status: 404 });
+        }
+        addonPlayer.addon = !addonPlayer.addon;
+        break;
+      }
     }
 
     await setTournament(id, JSON.stringify(tournament));
