@@ -106,6 +106,17 @@ body {
   color: var(--text-muted);
 }
 
+/* Select dropdown - ensure dark background for visibility */
+select.input {
+  background-color: var(--bg-dark);
+  cursor: pointer;
+}
+
+select.input option {
+  background-color: var(--bg-dark);
+  color: var(--text);
+}
+
 h1 {
   color: var(--accent);
   font-size: 28px;
