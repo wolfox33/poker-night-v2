@@ -36,7 +36,7 @@ test.describe('Poker Night E2E', () => {
     await addPlayer(page, 'João');
     await expect(page.locator('text=João').first()).toBeVisible();
     await expect(page.locator('text=Total Arrecadado')).toBeVisible();
-    await expect(page.locator('text=R$ 100').first()).toBeVisible();
+    await expect(page.locator('text=R$ 20').first()).toBeVisible(); // Default buy-in is now 20
   });
 
   // ── Player actions: Rebuy & Addon ──
@@ -103,6 +103,8 @@ test.describe('Poker Night E2E', () => {
     await page.click('button:has-text("Próx. Nível")');
     await expect(page.locator('text=2 / 27').first()).toBeVisible({ timeout: 10000 });
 
+    // Reset now requires confirmation - setup dialog handler first
+    page.on('dialog', dialog => dialog.accept());
     await page.click('button:has-text("↺")');
     await expect(page.locator('text=1 / 27').first()).toBeVisible({ timeout: 10000 });
   });
@@ -134,7 +136,7 @@ test.describe('Poker Night E2E', () => {
     await page.click('button:has-text("Config")');
 
     await expect(page.locator('text=Configurações')).toBeVisible();
-    for (const label of ['Buy-in', 'Rebuy Simples', 'Rebuy Duplo', 'Addon', 'Minutos por Nível']) {
+    for (const label of ['Buy-in', 'Rebuy Simples', 'Rebuy Duplo', 'Addon', 'Minutos por Nível', 'Arredondamento']) {
       await expect(page.locator(`text=${label}`).first()).toBeVisible();
     }
   });
