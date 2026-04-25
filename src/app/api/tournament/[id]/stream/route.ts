@@ -2,8 +2,6 @@ import { NextRequest } from 'next/server';
 import { getTournament } from '@/lib/kv';
 import { Tournament } from '@/types/tournament';
 
-const clients = new Map<string, Map<string, ReadableStreamDefaultController>>();
-
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -31,27 +29,17 @@ export async function GET(
   }
 
   const clientId = Math.random().toString(36).substring(7);
-  
-  if (!clients.has(id)) {
-    clients.set(id, new Map());
-  }
-  const clientMap = clients.get(id)!;
 
   const stream = new ReadableStream({
     start(controller) {
-      clientMap.set(clientId, controller);
-
       controller.enqueue(
         new TextEncoder().encode(`data: ${JSON.stringify({ type: 'state', data: tournament })}\n\n`)
       );
-      // Server-side timer removed - clients calculate time locally and notify on level change
+      controller.enqueue(
+        new TextEncoder().encode(`: connected ${clientId}\n\n`)
+      );
     },
-    cancel() {
-      clientMap.delete(clientId);
-      if (clientMap.size === 0) {
-        clients.delete(id);
-      }
-    },
+    cancel() {},
   });
 
   return new Response(stream, {
@@ -61,19 +49,4 @@ export async function GET(
       'Connection': 'keep-alive',
     },
   });
-}
-
-export function broadcastToTournament(tournamentId: string, message: object) {
-  const clientMap = clients.get(tournamentId);
-  if (clientMap) {
-    const data = `data: ${JSON.stringify(message)}\n\n`;
-    const encoded = new TextEncoder().encode(data);
-    for (const controller of clientMap.values()) {
-      try {
-        controller.enqueue(encoded);
-      } catch {
-        // Client disconnected
-      }
-    }
-  }
 }

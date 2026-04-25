@@ -14,6 +14,8 @@ export interface Player {
   id: string;
   name: string;
   buyins: number;
+  rebuySingleCount?: number;
+  rebuyDoubleCount?: number;
   rebuys: number;
   addon: boolean;
   isHost: boolean;
@@ -63,8 +65,8 @@ export interface Tournament {
 
 export interface JoinResponse {
   tournament: Tournament;
-  playerToken: string;
-  role: 'host' | 'player';
+  playerToken?: string;
+  role: 'host' | 'player' | 'none';
 }
 
 export interface CreateResponse {
@@ -85,7 +87,7 @@ export interface TimerAction {
 }
 
 export interface PlayerAction {
-  action: 'add' | 'remove' | 'rebuy' | 'addon';
+  action: 'add' | 'remove' | 'rebuy' | 'removeRebuy' | 'addon';
   playerId?: string;
   name?: string;
   buyin?: number;
@@ -102,7 +104,8 @@ export interface ExtrasAction {
 }
 
 export interface RankingAction {
-  positions: { playerId: string; position: number }[];
+  action?: 'finish' | 'finishWithoutRanking' | 'reopen';
+  positions?: { playerId: string; position: number }[];
   prizes?: number[];
   agreement?: RankingAgreement;
 }

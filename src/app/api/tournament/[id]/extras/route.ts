@@ -31,16 +31,22 @@ export async function POST(
     switch (action) {
       case 'add': {
         const { description, amount, paidBy, splitAmong } = body;
-        if (!description || !amount || !splitAmong || splitAmong.length === 0) {
+        const amountValue = amount ?? NaN;
+        if (!description?.trim() || !Number.isFinite(amountValue) || amountValue <= 0 || !splitAmong || splitAmong.length === 0) {
           return NextResponse.json(
-            { error: 'description, amount and splitAmong are required' },
+            { error: 'description, positive amount and splitAmong are required' },
             { status: 400 }
           );
         }
+        const playerIds = new Set(tournament.players.map((player) => player.id));
+        const allIds = [...(paidBy || []), ...splitAmong];
+        if (allIds.some((playerId) => !playerIds.has(playerId))) {
+          return NextResponse.json({ error: 'Invalid extra player' }, { status: 400 });
+        }
         tournament.extras.push({
           id: generateId(),
-          description,
-          amount,
+          description: description.trim(),
+          amount: amountValue,
           paidBy: paidBy || [],
           splitAmong,
         });
@@ -55,6 +61,9 @@ export async function POST(
         tournament.extras = tournament.extras.filter(e => e.id !== extraId);
         break;
       }
+
+      default:
+        return NextResponse.json({ error: 'Invalid extras action' }, { status: 400 });
     }
 
     await setTournament(id, JSON.stringify(tournament));

@@ -5,10 +5,7 @@ import {
   Tournament,
   TournamentResponse,
   TimerState,
-  TournamentState,
   TournamentConfig,
-  Player,
-  RankingState,
 } from '@/types/tournament';
 
 interface UseTournamentReturn {
@@ -19,14 +16,17 @@ interface UseTournamentReturn {
   canEdit: boolean;
   role: 'host' | 'player' | 'none';
   createTournament: (config?: Partial<TournamentConfig>) => Promise<{ id: string; code: string; hostToken: string }>;
-  joinTournament: (code: string, playerName: string) => Promise<string>;
+  joinTournament: (code: string) => Promise<string>;
   timerAction: (action: 'start' | 'pause' | 'reset' | 'skip' | 'advance') => Promise<void>;
   addPlayer: (name: string, buyin?: number) => Promise<void>;
   removePlayer: (playerId: string) => Promise<void>;
   rebuyPlayer: (playerId: string, rebuyType: 'single' | 'double') => Promise<void>;
+  removeRebuy: (playerId: string, rebuyType: 'single' | 'double') => Promise<void>;
   toggleAddon: (playerId: string) => Promise<void>;
   updateConfig: (config: Partial<TournamentConfig>) => Promise<void>;
   updateRanking: (positions: { playerId: string; position: number }[], prizes?: number[], agreement?: 'none' | 'icm' | 'manual') => Promise<void>;
+  finishWithoutRanking: () => Promise<void>;
+  reopenTournament: () => Promise<void>;
   addExtra: (description: string, amount: number, paidBy: string[], splitAmong: string[]) => Promise<void>;
   removeExtra: (extraId: string) => Promise<void>;
   logout: () => void;
@@ -93,13 +93,10 @@ export function useTournament(): UseTournamentReturn {
       setIsConnected(false);
       eventSource.close();
 
-      // Check if it's a permanent error (stop retrying)
-      const event = err as Event & { target?: EventSource };
-      const permanentErrors = [401, 403, 404];
       // EventSource doesn't expose status code directly, but we track retries
+      console.error('SSE connection error:', err);
       if (retryCountRef.current >= MAX_RETRIES) {
         console.error('SSE: Max retries reached, giving up');
-        setError('Connection failed after multiple attempts. Please refresh.');
         return;
       }
 
@@ -117,12 +114,10 @@ export function useTournament(): UseTournamentReturn {
     eventSourceRef.current = eventSource;
   }, []);
 
-  const fetchState = useCallback(async (id: string, token: string) => {
+  const fetchState = useCallback(async (id: string, token?: string) => {
     try {
       const res = await fetch(`/api/tournament/${id}/state`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
 
       if (!res.ok) {
@@ -135,8 +130,9 @@ export function useTournament(): UseTournamentReturn {
       setCanEdit(data.canEdit);
       setIsLoading(false);
 
-      // Connect to SSE stream
-      connectToStream(id, token);
+      if (token) {
+        connectToStream(id, token);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load tournament');
       setIsLoading(false);
@@ -184,7 +180,7 @@ export function useTournament(): UseTournamentReturn {
     }
   }, [connectToStream]);
 
-  const joinTournament = useCallback(async (code: string, playerName: string) => {
+  const joinTournament = useCallback(async (code: string) => {
     setIsLoading(true);
     setError(null);
 
@@ -192,7 +188,7 @@ export function useTournament(): UseTournamentReturn {
       const res = await fetch('/api/tournament/join', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code, playerName }),
+        body: JSON.stringify({ code }),
       });
 
       if (!res.ok) {
@@ -202,17 +198,15 @@ export function useTournament(): UseTournamentReturn {
 
       const data = await res.json();
 
-      // Store tokens
-      localStorage.setItem('poker_player_token', data.playerToken);
+      localStorage.removeItem('poker_host_token');
+      localStorage.removeItem('poker_player_token');
       localStorage.setItem('poker_tournament_id', data.tournament.id);
-      tokenRef.current = data.playerToken;
+      tokenRef.current = null;
       tournamentIdRef.current = data.tournament.id;
 
-      setRole('player');
+      setRole('none');
       setCanEdit(false);
-
-      // Connect to stream
-      connectToStream(data.tournament.id, data.playerToken);
+      setTournament(data.tournament);
 
       return data.tournament.id;
     } catch (err) {
@@ -221,7 +215,7 @@ export function useTournament(): UseTournamentReturn {
     } finally {
       setIsLoading(false);
     }
-  }, [connectToStream]);
+  }, []);
 
   const timerAction = useCallback(async (action: 'start' | 'pause' | 'reset' | 'skip' | 'advance') => {
     const id = tournamentIdRef.current;
@@ -297,6 +291,27 @@ export function useTournament(): UseTournamentReturn {
       setTournament((prev) => prev ? { ...prev, players: data.players } : null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to rebuy player');
+    }
+  }, []);
+
+  const removeRebuy = useCallback(async (playerId: string, rebuyType: 'single' | 'double') => {
+    const id = tournamentIdRef.current;
+    const token = tokenRef.current;
+    if (!id || !token) return;
+    try {
+      const res = await fetch(`/api/tournament/${id}/players`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ action: 'removeRebuy', playerId, rebuyType }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to remove rebuy');
+      }
+      const data = await res.json();
+      setTournament((prev) => prev ? { ...prev, players: data.players } : null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to remove rebuy');
     }
   }, []);
 
@@ -404,6 +419,8 @@ export function useTournament(): UseTournamentReturn {
         const data = await res.json();
         throw new Error(data.error || 'Failed to update config');
       }
+      const data = await res.json();
+      setTournament((prev) => prev ? { ...prev, config: data.config } : null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update config');
     }
@@ -429,8 +446,64 @@ export function useTournament(): UseTournamentReturn {
         const data = await res.json();
         throw new Error(data.error || 'Failed to update ranking');
       }
+      const data = await res.json();
+      setTournament((prev) => prev ? { ...prev, ranking: data.ranking, state: 'finished' } : null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update ranking');
+    }
+  }, []);
+
+  const finishWithoutRanking = useCallback(async () => {
+    const id = tournamentIdRef.current;
+    const token = tokenRef.current;
+
+    if (!id || !token) return;
+
+    try {
+      const res = await fetch(`/api/tournament/${id}/ranking`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ action: 'finishWithoutRanking' }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to finish tournament');
+      }
+      const data = await res.json();
+      setTournament((prev) => prev ? { ...prev, ranking: data.ranking, state: data.state } : null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to finish tournament');
+    }
+  }, []);
+
+  const reopenTournament = useCallback(async () => {
+    const id = tournamentIdRef.current;
+    const token = tokenRef.current;
+
+    if (!id || !token) return;
+
+    try {
+      const res = await fetch(`/api/tournament/${id}/ranking`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ action: 'reopen' }),
+      });
+
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || 'Failed to reopen tournament');
+      }
+      const data = await res.json();
+      setTournament((prev) => prev ? { ...prev, ranking: data.ranking, state: data.state } : null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to reopen tournament');
     }
   }, []);
 
@@ -448,23 +521,31 @@ export function useTournament(): UseTournamentReturn {
     tokenRef.current = null;
   }, []);
 
-  // Polling fallback: only when SSE is NOT connected and timer is running
+  // Serverless-safe sync: SSE may only deliver the initial state depending on the host.
   useEffect(() => {
-    if (!tournament?.timer?.isRunning) return;
-    if (isConnected) return; // Don't poll if SSE is working
     const id = tournamentIdRef.current;
     const token = tokenRef.current;
-    if (!id || !token) return;
-    const intervalId = setInterval(() => {
+    if (!id) return;
+
+    const refresh = () => {
       fetch(`/api/tournament/${id}/state`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       })
         .then(r => r.ok ? r.json() : null)
-        .then(data => { if (data?.tournament) setTournament(data.tournament); })
-        .catch(() => {});
-    }, 30000); // Increased to 30s to reduce function invocations
+        .then((data: TournamentResponse | null) => {
+          if (!data?.tournament) return;
+          setTournament(data.tournament);
+          setRole(data.role);
+          setCanEdit(data.canEdit);
+        })
+        .catch((err) => {
+          console.error('Polling state refresh failed:', err);
+        });
+    };
+
+    const intervalId = setInterval(refresh, tournament?.timer?.isRunning ? 5000 : 10000);
     return () => clearInterval(intervalId);
-  }, [tournament?.timer?.isRunning, isConnected]);
+  }, [tournament?.id, tournament?.timer?.isRunning]);
 
   // Initialize on mount - check for stored session
   useEffect(() => {
@@ -473,10 +554,10 @@ export function useTournament(): UseTournamentReturn {
     const playerToken = localStorage.getItem('poker_player_token');
     const token = hostToken || playerToken;
 
-    if (storedId && token) {
+    if (storedId) {
       tournamentIdRef.current = storedId;
-      tokenRef.current = token;
-      fetchState(storedId, token);
+      tokenRef.current = token || null;
+      fetchState(storedId, token || undefined);
     } else {
       setIsLoading(false);
     }
@@ -505,9 +586,12 @@ export function useTournament(): UseTournamentReturn {
     addPlayer,
     removePlayer: removePlayerInternal,
     rebuyPlayer,
+    removeRebuy,
     toggleAddon,
     updateConfig,
     updateRanking,
+    finishWithoutRanking,
+    reopenTournament,
     addExtra,
     removeExtra,
     logout,

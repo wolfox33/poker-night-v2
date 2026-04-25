@@ -1,31 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { customAlphabet } from 'nanoid';
-import { getTournament, getTournamentByCode, setTournament } from '@/lib/kv';
-import { Tournament, Player } from '@/types/tournament';
-
-const generateId = customAlphabet('abcdefghijklmnopqrstuvwxyz', 10);
-const generateToken = customAlphabet('abcdefghijklmnopqrstuvwxyz', 16);
+import { getTournament, getTournamentByCode } from '@/lib/kv';
+import { Tournament } from '@/types/tournament';
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { code, playerName } = body;
+    const code = typeof body.code === 'string' ? body.code.trim().toUpperCase() : '';
 
-    if (!code || !playerName) {
+    if (!code) {
       return NextResponse.json(
-        { error: 'Code and player name are required' },
+        { error: 'Code is required' },
         { status: 400 }
       );
     }
 
-    if (playerName.length > 20) {
-      return NextResponse.json(
-        { error: 'Player name must be 20 characters or less' },
-        { status: 400 }
-      );
-    }
-
-    const id = await getTournamentByCode(code.toUpperCase());
+    const id = await getTournamentByCode(code);
     if (!id) {
       return NextResponse.json(
         { error: 'Tournament not found' },
@@ -43,34 +32,9 @@ export async function POST(request: NextRequest) {
 
     const tournament: Tournament = JSON.parse(data);
 
-    // Check if name is already taken
-    const nameTaken = tournament.players.some(
-      (p) => p.name.toLowerCase() === playerName.toLowerCase()
-    );
-    if (nameTaken) {
-      return NextResponse.json(
-        { error: 'This name is already taken' },
-        { status: 400 }
-      );
-    }
-
-    const playerToken = generateToken();
-    const player: Player = {
-      id: playerToken,
-      name: playerName,
-      buyins: 0,
-      rebuys: 0,
-      addon: false,
-      isHost: false,
-    };
-
-    tournament.players.push(player);
-    await setTournament(id, JSON.stringify(tournament));
-
     return NextResponse.json({
       tournament,
-      playerToken,
-      role: 'player' as const,
+      role: 'none' as const,
     });
   } catch (error) {
     console.error('Join tournament error:', error);

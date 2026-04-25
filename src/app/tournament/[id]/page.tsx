@@ -1,21 +1,9 @@
 'use client';
 
 import { useEffect, useState, useMemo, useCallback, useRef } from 'react';
-
-// Wake Lock API types (not in default DOM types yet)
-interface WakeLockSentinel extends EventTarget {
-  released: boolean;
-  type: 'screen';
-  release(): Promise<void>;
-  onrelease: ((this: WakeLockSentinel, ev: Event) => unknown) | null;
-}
-interface Navigator {
-  wakeLock: {
-    request(type: 'screen'): Promise<WakeLockSentinel>;
-  };
-}
 import { useTournament } from '@/hooks/useTournament';
-import { useParams, useSearchParams, useRouter } from 'next/navigation';
+import { useSearchParams, useRouter } from 'next/navigation';
+import { calculatePlayerCost, getPlayerRebuyCounts } from '@/lib/tournament-money';
 import { BLINDS_LEVELS } from '@/types/tournament';
 
 type Tab = 'tournament' | 'timer' | 'ranking' | 'config' | 'extras' | 'acerto';
@@ -29,7 +17,6 @@ const SNG_PCT: Record<number, number[]> = {
 const POSITIONS = ['🥇', '🥈', '🥉', '4º', '5º'];
 
 export default function TournamentPage() {
-  const params = useParams();
   const searchParams = useSearchParams();
   const router = useRouter();
   const code = searchParams.get('code') || '';
@@ -40,14 +27,16 @@ export default function TournamentPage() {
     error,
     isConnected,
     canEdit,
-    role,
     timerAction,
     addPlayer,
     removePlayer,
     rebuyPlayer,
+    removeRebuy,
     toggleAddon,
     updateConfig,
     updateRanking,
+    finishWithoutRanking,
+    reopenTournament,
     addExtra,
     removeExtra,
     logout,
@@ -77,8 +66,8 @@ export default function TournamentPage() {
 
   // Sync rankingPositions length with prizeCount
   useEffect(() => {
-    if (!tournament) return;
-    const count = tournament.config.prizeCount;
+    const count = tournament?.config.prizeCount;
+    if (!count) return;
     setRankingPositions((prev) => {
       if (prev.length === count) return prev;
       return Array(count).fill('');
@@ -188,7 +177,7 @@ export default function TournamentPage() {
     tick();
     const id = setInterval(tick, 200);
     return () => clearInterval(id);
-  }, [tournament?.timer?.isRunning, tournament?.timer?.startedAt, tournament?.timer?.timeRemaining, tournament?.timer?.currentLevel, playBeep, showNotification, timerAction]);
+  }, [tournament?.timer, playBeep, showNotification, timerAction]);
 
   // Wake Lock: keep screen awake when timer tab is active and timer is running
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
@@ -199,7 +188,7 @@ export default function TournamentPage() {
 
     const requestWakeLock = async () => {
       try {
-        if ('wakeLock' in navigator && !wakeLockRef.current) {
+        if (navigator.wakeLock && !wakeLockRef.current) {
           wakeLockRef.current = await navigator.wakeLock.request('screen');
         }
       } catch {}
@@ -234,35 +223,28 @@ export default function TournamentPage() {
 
   // ── Derived values & memos (MUST be before any conditional return) ──
 
-  const calcPlayerCost = (p: { buyins: number; rebuys: number; addon: boolean }) => {
+  const calcPlayerCost = useCallback((p: Parameters<typeof calculatePlayerCost>[0]) => {
     if (!tournament) return 0;
-    const buyins = p.buyins * tournament.config.buyIn;
-    const rebuys = p.rebuys > 1
-      ? (p.rebuys - 1) * tournament.config.rebuyDouble
-      : p.rebuys * tournament.config.rebuySingle;
-    const addon = p.addon ? tournament.config.addon : 0;
-    return buyins + rebuys + addon;
-  };
+    return calculatePlayerCost(p, tournament.config);
+  }, [tournament]);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   const totalPot = useMemo(
     () => tournament?.players.reduce((sum, p) => sum + calcPlayerCost(p), 0) ?? 0,
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tournament]
+    [calcPlayerCost, tournament?.players]
   );
 
   // Helper para arredondar segundo roundingStep do torneio
-  const roundValue = (val: number) => {
+  const roundValue = useCallback((val: number) => {
     const step = tournament?.config.roundingStep ?? 1;
     if (step <= 0) return Math.round(val);
     return Math.round(val / step) * step;
-  };
+  }, [tournament?.config.roundingStep]);
 
   const prizePreview = useMemo(() => {
     if (!tournament) return [];
     const pct = SNG_PCT[tournament.config.prizeCount] ?? SNG_PCT[3];
     return pct.map((p) => roundValue(totalPot * p / 100));
-  }, [totalPot, tournament?.config.prizeCount, tournament?.config.roundingStep]);
+  }, [roundValue, totalPot, tournament]);
 
   function calcICM(chips: number[], prizes: number[]): number[] {
     const n = chips.length;
@@ -294,8 +276,7 @@ export default function TournamentPage() {
     }
     if (rankingMode === 'manual') return rankingManual.map(v => roundValue(v));
     return prizes.map(v => roundValue(v));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rankingMode, rankingChips, rankingManual, totalPot, tournament?.config.prizeCount, tournament?.config.roundingStep]);
+  }, [rankingMode, rankingChips, rankingManual, roundValue, totalPot, tournament]);
 
   const settlementData = useMemo(() => {
     if (!tournament) return null;
@@ -331,8 +312,7 @@ export default function TournamentPage() {
       if (c[0].valor < 0.01) c.shift();
     }
     return { resumo, saldos, transacoes };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tournament]);
+  }, [calcPlayerCost, roundValue, tournament]);
 
   // ── Conditional returns (after ALL hooks) ──
 
@@ -398,6 +378,22 @@ export default function TournamentPage() {
     setIsAddingPlayer(false);
   };
 
+  const handleRemovePlayer = async (playerId: string, playerName: string) => {
+    if (!confirm(`Excluir ${playerName}? Essa ação remove o jogador e todos os lançamentos dele.`)) return;
+    await removePlayer(playerId);
+  };
+
+  const handleRemoveRebuy = async (playerId: string, playerName: string, rebuyType: 'single' | 'double') => {
+    const label = rebuyType === 'single' ? 'rebuy simples' : 'rebuy duplo';
+    if (!confirm(`Remover ${label} de ${playerName}?`)) return;
+    await removeRebuy(playerId, rebuyType);
+  };
+
+  const handleRemoveAddon = async (playerId: string, playerName: string) => {
+    if (!confirm(`Remover addon de ${playerName}?`)) return;
+    await toggleAddon(playerId);
+  };
+
   const handleAddExtra = async () => {
     const amount = parseFloat(extraAmount);
     if (!extraDesc.trim() || !amount || extraSplitAmong.length === 0) return;
@@ -414,6 +410,16 @@ export default function TournamentPage() {
       .filter(p => p.playerId);
     if (positions.length !== tournament.config.prizeCount) return;
     await updateRanking(positions, calculatedPrizes, rankingMode);
+  };
+
+  const handleFinishWithoutRanking = async () => {
+    if (!confirm('Finalizar sem ranking? Use isso quando quiser calcular apenas despesas extras/acerto.')) return;
+    await finishWithoutRanking();
+  };
+
+  const handleReopenTournament = async () => {
+    if (!confirm('Reabrir o torneio para edição? O ranking final deixará de ficar travado até finalizar novamente.')) return;
+    await reopenTournament();
   };
 
   const playerName = (id: string) => tournament?.players.find(p => p.id === id)?.name ?? id;
@@ -544,28 +550,69 @@ export default function TournamentPage() {
                     <div className="flex items-center gap-2">
                       <span className="font-bold">R$ {calcPlayerCost(player)}</span>
                       {canEdit && (
-                        <button onClick={() => removePlayer(player.id)} className="text-[var(--danger)] text-xl hover:opacity-70">×</button>
+                        <button onClick={() => handleRemovePlayer(player.id, player.name)} className="text-[var(--danger)] text-xl hover:opacity-70">×</button>
                       )}
                     </div>
                   </div>
                   <div className="flex flex-wrap gap-1 mb-2">
                     <span className="px-2 py-0.5 rounded text-xs bg-[var(--accent)] text-black font-bold">Entrada</span>
-                    {player.rebuys > 0 && (
-                      <span className="px-2 py-0.5 rounded text-xs bg-orange-500 text-white font-bold">{player.rebuys}x Rebuy</span>
-                    )}
+                    {Array.from({ length: getPlayerRebuyCounts(player).single }, (_, index) => (
+                      <span key={`single-${index}`} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-orange-500 text-white font-bold">
+                        Rebuy S
+                        {canEdit && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveRebuy(player.id, player.name, 'single')}
+                            className="leading-none hover:opacity-70"
+                            aria-label={`Remover rebuy simples de ${player.name}`}
+                          >
+                            ×
+                          </button>
+                        )}
+                      </span>
+                    ))}
+                    {Array.from({ length: getPlayerRebuyCounts(player).double }, (_, index) => (
+                      <span key={`double-${index}`} className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-amber-600 text-white font-bold">
+                        Rebuy D
+                        {canEdit && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveRebuy(player.id, player.name, 'double')}
+                            className="leading-none hover:opacity-70"
+                            aria-label={`Remover rebuy duplo de ${player.name}`}
+                          >
+                            ×
+                          </button>
+                        )}
+                      </span>
+                    ))}
                     {player.addon && (
-                      <span className="px-2 py-0.5 rounded text-xs bg-green-500 text-white font-bold">Addon</span>
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-green-500 text-white font-bold">
+                        Addon
+                        {canEdit && (
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveAddon(player.id, player.name)}
+                            className="leading-none hover:opacity-70"
+                            aria-label={`Remover addon de ${player.name}`}
+                          >
+                            ×
+                          </button>
+                        )}
+                      </span>
                     )}
                   </div>
                   {canEdit && (
                     <div className="flex gap-2">
                       <button onClick={() => setRebuyPlayerId(player.id)} className="btn btn-secondary text-xs py-1">Rebuy</button>
-                      <button
-                        onClick={() => toggleAddon(player.id)}
-                        className={`btn text-xs py-1 ${player.addon ? 'btn-danger' : 'btn-secondary'}`}
-                      >
-                        {player.addon ? 'Remover Addon' : '+ Addon'}
-                      </button>
+                      {!player.addon && (
+                        <button
+                          onClick={() => toggleAddon(player.id)}
+                          className="btn btn-secondary text-xs py-1"
+                        >
+                          + Addon
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -674,19 +721,26 @@ export default function TournamentPage() {
             <h2 className="mb-4">Ranking Final</h2>
 
             {tournament.state === 'finished' ? (
-              <div className="space-y-2">
-                {tournament.ranking.places.map((place) => {
-                  const player = tournament.players.find(p => p.id === place.playerId);
-                  return (
-                    <div key={place.position} className="glass-card flex justify-between items-center">
-                      <div>
-                        <span className="text-[var(--accent)] font-bold">{POSITIONS[place.position - 1]}</span>
-                        <span className="ml-2">{player?.name}</span>
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  {tournament.ranking.places.map((place) => {
+                    const player = tournament.players.find(p => p.id === place.playerId);
+                    return (
+                      <div key={place.position} className="glass-card flex justify-between items-center">
+                        <div>
+                          <span className="text-[var(--accent)] font-bold">{POSITIONS[place.position - 1]}</span>
+                          <span className="ml-2">{player?.name}</span>
+                        </div>
+                        <span className="text-[var(--accent)] font-bold">R$ {place.prize}</span>
                       </div>
-                      <span className="text-[var(--accent)] font-bold">R$ {place.prize}</span>
-                    </div>
-                  );
-                })}
+                    );
+                  })}
+                </div>
+                {canEdit && (
+                  <button onClick={handleReopenTournament} className="btn btn-secondary w-full">
+                    Reabrir Torneio
+                  </button>
+                )}
               </div>
             ) : canEdit ? (
               <div className="space-y-4">
@@ -767,6 +821,12 @@ export default function TournamentPage() {
                 >
                   Finalizar Torneio
                 </button>
+                <button
+                  onClick={handleFinishWithoutRanking}
+                  className="btn btn-secondary w-full"
+                >
+                  Finalizar sem Ranking
+                </button>
               </div>
             ) : (
               <p className="text-center text-[var(--text-muted)] py-8">
@@ -792,7 +852,7 @@ export default function TournamentPage() {
                 ].map(([label, key, val]) => (
                   <div key={key as string}>
                     <label className="block text-sm text-[var(--text-muted)] mb-2">{label as string}</label>
-                    <input type="number" min={1} defaultValue={val as number} onBlur={(e) => updateConfig({ [key as string]: Number(e.target.value) })} className="input" />
+                    <input type="number" min={key === 'buyIn' ? 0 : 1} defaultValue={val as number} onBlur={(e) => updateConfig({ [key as string]: Number(e.target.value) })} className="input" />
                   </div>
                 ))}
                 <div>
@@ -908,7 +968,7 @@ export default function TournamentPage() {
           <div>
             <h2 className="mb-4">Acerto de Contas</h2>
 
-            {!settlementData || tournament.ranking.places.length === 0 ? (
+            {!settlementData || tournament.state !== 'finished' ? (
               <p className="text-center text-[var(--text-muted)] py-8">
                 Finalize o torneio na aba Ranking para calcular o acerto
               </p>

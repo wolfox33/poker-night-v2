@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getTournament, setTournament } from '@/lib/kv';
-import { Tournament, TournamentConfig, RankingAction } from '@/types/tournament';
+import { validateConfigPatch } from '@/lib/tournament-validation';
+import { Tournament, TournamentConfig } from '@/types/tournament';
 
 export async function POST(
   request: NextRequest,
@@ -29,11 +30,17 @@ export async function POST(
     }
 
     const body: Partial<TournamentConfig> = await request.json();
-
-    // Validate
-    if (body.prizeCount !== undefined && (body.prizeCount < 3 || body.prizeCount > 5)) {
+    if (!body || typeof body !== 'object') {
       return NextResponse.json(
-        { error: 'Prize count must be between 3 and 5' },
+        { error: 'Config payload must be an object' },
+        { status: 400 }
+      );
+    }
+
+    const validationError = validateConfigPatch(body);
+    if (validationError) {
+      return NextResponse.json(
+        { error: validationError },
         { status: 400 }
       );
     }

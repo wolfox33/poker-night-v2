@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { customAlphabet } from 'nanoid';
 import { getTournament, setTournament } from '@/lib/kv';
+import { getPlayerRebuyCounts } from '@/lib/tournament-money';
 import { Tournament, Player, PlayerAction } from '@/types/tournament';
 
 const generateId = customAlphabet('abcdefghijklmnopqrstuvwxyz', 10);
@@ -36,16 +37,28 @@ export async function POST(
 
     switch (action) {
       case 'add':
-        if (!name) {
+        if (!name?.trim()) {
           return NextResponse.json(
             { error: 'Player name is required' },
+            { status: 400 }
+          );
+        }
+        if (name.trim().length > 20) {
+          return NextResponse.json(
+            { error: 'Player name must be 20 characters or less' },
+            { status: 400 }
+          );
+        }
+        if (buyin !== undefined && (!Number.isInteger(buyin) || buyin < 0)) {
+          return NextResponse.json(
+            { error: 'Buy-ins must be a non-negative integer' },
             { status: 400 }
           );
         }
 
         // Check if name is taken
         const nameTaken = tournament.players.some(
-          (p) => p.name.toLowerCase() === name.toLowerCase()
+          (p) => p.name.toLowerCase() === name.trim().toLowerCase()
         );
         if (nameTaken) {
           return NextResponse.json(
@@ -56,8 +69,10 @@ export async function POST(
 
         const newPlayer: Player = {
           id: generateId(),
-          name,
-          buyins: buyin || 1,
+          name: name.trim(),
+          buyins: buyin ?? 1,
+          rebuySingleCount: 0,
+          rebuyDoubleCount: 0,
           rebuys: 0,
           addon: false,
           isHost: false,
@@ -87,7 +102,44 @@ export async function POST(
         if (!rebuyPlayer) {
           return NextResponse.json({ error: 'Player not found' }, { status: 404 });
         }
-        rebuyPlayer.rebuys += rebuyType === 'double' ? 2 : 1;
+        if (rebuyType !== 'single' && rebuyType !== 'double') {
+          return NextResponse.json({ error: 'Invalid rebuy type' }, { status: 400 });
+        }
+        const currentRebuys = getPlayerRebuyCounts(rebuyPlayer);
+        rebuyPlayer.rebuySingleCount = currentRebuys.single;
+        rebuyPlayer.rebuyDoubleCount = currentRebuys.double;
+        if (rebuyType === 'double') {
+          rebuyPlayer.rebuyDoubleCount += 1;
+        } else {
+          rebuyPlayer.rebuySingleCount += 1;
+        }
+        rebuyPlayer.rebuys = rebuyPlayer.rebuySingleCount + rebuyPlayer.rebuyDoubleCount;
+        break;
+      }
+
+      case 'removeRebuy': {
+        if (!playerId) {
+          return NextResponse.json(
+            { error: 'Player ID is required' },
+            { status: 400 }
+          );
+        }
+        const rebuyPlayer = tournament.players.find(p => p.id === playerId);
+        if (!rebuyPlayer) {
+          return NextResponse.json({ error: 'Player not found' }, { status: 404 });
+        }
+        if (rebuyType !== 'single' && rebuyType !== 'double') {
+          return NextResponse.json({ error: 'Invalid rebuy type' }, { status: 400 });
+        }
+        const currentRebuys = getPlayerRebuyCounts(rebuyPlayer);
+        rebuyPlayer.rebuySingleCount = currentRebuys.single;
+        rebuyPlayer.rebuyDoubleCount = currentRebuys.double;
+        if (rebuyType === 'double') {
+          rebuyPlayer.rebuyDoubleCount = Math.max(0, rebuyPlayer.rebuyDoubleCount - 1);
+        } else {
+          rebuyPlayer.rebuySingleCount = Math.max(0, rebuyPlayer.rebuySingleCount - 1);
+        }
+        rebuyPlayer.rebuys = rebuyPlayer.rebuySingleCount + rebuyPlayer.rebuyDoubleCount;
         break;
       }
 
@@ -105,6 +157,9 @@ export async function POST(
         addonPlayer.addon = !addonPlayer.addon;
         break;
       }
+
+      default:
+        return NextResponse.json({ error: 'Invalid player action' }, { status: 400 });
     }
 
     await setTournament(id, JSON.stringify(tournament));

@@ -7,7 +7,6 @@ import { useRouter } from 'next/navigation';
 export default function Home() {
   const [mode, setMode] = useState<'choose' | 'create' | 'join'>('choose');
   const [code, setCode] = useState('');
-  const [playerName, setPlayerName] = useState('');
   const [joinError, setJoinError] = useState('');
   const [isJoining, setIsJoining] = useState(false);
 
@@ -24,8 +23,8 @@ export default function Home() {
   };
 
   const handleJoin = async () => {
-    if (!code || !playerName) {
-      setJoinError('Preencha o código e seu nome');
+    if (!code) {
+      setJoinError('Preencha o código');
       return;
     }
 
@@ -33,10 +32,10 @@ export default function Home() {
     setJoinError('');
 
     try {
-      const id = await joinTournament(code.toUpperCase(), playerName);
+      const id = await joinTournament(code.toUpperCase());
       router.push(`/tournament/${id}?code=${code.toUpperCase()}`);
     } catch (err) {
-      setJoinError(err instanceof Error ? err.message : 'Erro ao entrar no torneio');
+      setJoinError(err instanceof Error ? err.message : 'Erro ao visualizar o torneio');
     } finally {
       setIsJoining(false);
     }
@@ -70,7 +69,7 @@ export default function Home() {
             </div>
           ) : (
             <div>
-              <h1 className="mb-6 text-center">Acesse o Torneio</h1>
+              <h1 className="mb-6 text-center">Visualizar Torneio</h1>
 
               <div className="space-y-4">
                 <div>
@@ -81,23 +80,9 @@ export default function Home() {
                     type="text"
                     value={code}
                     onChange={(e) => setCode(e.target.value.toUpperCase())}
-                    placeholder="ABC123"
+                    placeholder="ABC"
                     className="input text-center text-2xl tracking-widest font-bold"
-                    maxLength={6}
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-sm text-[var(--text-muted)] mb-2">
-                    Seu Nome
-                  </label>
-                  <input
-                    type="text"
-                    value={playerName}
-                    onChange={(e) => setPlayerName(e.target.value)}
-                    placeholder="Seu nome"
-                    className="input"
-                    maxLength={20}
+                    maxLength={3}
                   />
                 </div>
 
@@ -107,10 +92,10 @@ export default function Home() {
 
                 <button
                   onClick={handleJoin}
-                  disabled={isJoining || !code || !playerName}
+                  disabled={isJoining || !code}
                   className="btn btn-primary w-full"
                 >
-                  {isJoining ? 'Entrando...' : 'Entrar'}
+                  {isJoining ? 'Carregando...' : 'Visualizar Torneio'}
                 </button>
               </div>
             </div>
@@ -140,7 +125,7 @@ export default function Home() {
             onClick={() => setMode('join')}
             className="btn btn-secondary w-full"
           >
-            Entrar em Torneio
+            Visualizar Torneio
           </button>
         </div>
       </div>

@@ -50,7 +50,7 @@ test.describe('Poker Night E2E', () => {
     await expect(page.locator('text=Rebuy — Carlos')).toBeVisible({ timeout: 5000 });
     await page.click('button:has-text("Simples")');
 
-    await expect(page.locator('text=1x Rebuy')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('text=Rebuy S')).toBeVisible({ timeout: 10000 });
   });
 
   test('rebuy player (double)', async ({ page }) => {
@@ -60,7 +60,7 @@ test.describe('Poker Night E2E', () => {
     await page.click('button:has-text("Rebuy")');
     await page.click('button:has-text("Duplo")');
 
-    await expect(page.locator('text=2x Rebuy')).toBeVisible({ timeout: 10000 });
+    await expect(page.locator('text=Rebuy D')).toBeVisible({ timeout: 10000 });
   });
 
   test('addon player', async ({ page }) => {
@@ -70,7 +70,8 @@ test.describe('Poker Night E2E', () => {
     await page.click('button:has-text("+ Addon")');
     await expect(page.locator('span.bg-green-500')).toBeVisible({ timeout: 10000 });
 
-    await page.click('button:has-text("Remover Addon")');
+    page.on('dialog', dialog => dialog.accept());
+    await page.getByLabel('Remover addon de Pedro').click();
     await expect(page.locator('span.bg-green-500')).not.toBeVisible({ timeout: 10000 });
   });
 
@@ -225,9 +226,10 @@ test.describe('Poker Night E2E', () => {
 
   // ── Join (multi-player) ──
 
-  test('join tournament with code', async ({ page, context }) => {
+  test('view tournament with code', async ({ page, context }) => {
     const page1 = page;
     await createTournamentAndNavigate(page1);
+    await addPlayer(page1, 'Maria');
 
     const url = page1.url();
     const codeMatch = url.match(/code=([A-Z0-9]+)/);
@@ -236,10 +238,9 @@ test.describe('Poker Night E2E', () => {
 
     const page2 = await context.newPage();
     await page2.goto('/');
-    await page2.click('text=Entrar em Torneio');
-    await page2.fill('input[placeholder="ABC123"]', code);
-    await page2.fill('input[placeholder="Seu nome"]', 'Maria');
-    await page2.click('text=Entrar');
+    await page2.click('text=Visualizar Torneio');
+    await page2.fill('input[placeholder="ABC"]', code);
+    await page2.click('button:has-text("Visualizar Torneio")');
     await page2.waitForURL(/\/tournament\/.*\?code=/, { timeout: 30000 });
 
     await expect(page2.locator('text=Maria').first()).toBeVisible({ timeout: 15000 });
@@ -257,10 +258,9 @@ test.describe('Poker Night E2E', () => {
 
     const page2 = await context.newPage();
     await page2.goto('/');
-    await page2.click('text=Entrar em Torneio');
-    await page2.fill('input[placeholder="ABC123"]', code);
-    await page2.fill('input[placeholder="Seu nome"]', 'Visitante');
-    await page2.click('text=Entrar');
+    await page2.click('text=Visualizar Torneio');
+    await page2.fill('input[placeholder="ABC"]', code);
+    await page2.click('button:has-text("Visualizar Torneio")');
     await page2.waitForURL(/\/tournament\/.*\?code=/, { timeout: 30000 });
 
     await expect(page2.locator('input[placeholder="Nome do jogador"]')).not.toBeVisible({ timeout: 10000 });

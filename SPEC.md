@@ -2,7 +2,7 @@
 
 ## Visão Geral
 
-App web PWA para gerenciamento de torneios de poker presenciais. Um jogador cria o torneio (host) e compartilha um código de 6 caracteres. Os outros jogadores entram via código e acompanham o timer em tempo real. O servidor persiste o estado base do timer e os clientes calculam a contagem localmente a partir de `startedAt`, com sincronização de estado via SSE.
+App web PWA para gerenciamento de torneios de poker presenciais. Um jogador cria o torneio (host) e compartilha um código de 3 caracteres. Os outros jogadores entram via código e acompanham o timer em tempo real. O servidor persiste o estado base do timer e os clientes calculam a contagem localmente a partir de `startedAt`, com sincronização de estado via SSE.
 
 ---
 
@@ -11,19 +11,20 @@ App web PWA para gerenciamento de torneios de poker presenciais. Um jogador cria
 ### 1. Criar Torneio (Host)
 
 1. Host abre a landing page e clica em "Criar Torneio".
-2. Sistema gera `id` (ex: `poker-abcdefgh`), `code` (ex: `AB23XZ`) e `hostToken`.
-3. Host é redirecionado para `/tournament/[id]?code=AB23XZ` com papel `host`.
+2. Sistema gera `id` (ex: `poker-abcdefgh`), `code` (ex: `AB2`) e `hostToken`.
+3. Host é redirecionado para `/tournament/[id]?code=AB2` com papel `host`.
 4. Host compartilha o código com os jogadores.
 
-### 2. Entrar no Torneio (Player)
+### 2. Visualizar Torneio
 
-1. Jogador abre a landing page, digita o código e seu nome.
-2. Sistema valida código, verifica se nome já está em uso, cria `Player` com `playerToken`.
-3. Jogador é redirecionado para `/tournament/[id]` com papel `player`.
+1. Espectador abre a landing page e digita o código.
+2. Sistema valida o código sem criar jogador.
+3. Espectador é redirecionado para `/tournament/[id]` com papel `none`.
+4. Apenas o host adiciona jogadores ao torneio.
 
 ### 3. Sessão Persistente (localStorage)
 
-- Tokens e `tournamentId` são salvos em `localStorage`.
+- Tokens, quando existem, e `tournamentId` são salvos em `localStorage`.
 - Ao reabrir o app, o hook `useTournament` recupera a sessão automaticamente via `GET /state`.
 - Logout limpa o `localStorage` e encerra a conexão SSE.
 
@@ -32,9 +33,9 @@ App web PWA para gerenciamento de torneios de poker presenciais. Um jogador cria
 - Host pode: **start**, **pause**, **reset**, **skip** (próximo nível).
 - Timer é client-authoritative: o servidor persiste `startedAt`, `timeRemaining`, `totalElapsed`, `currentLevel` e `isRunning`.
 - Clientes interpolam a contagem localmente; não há `setInterval` server-side por torneio.
-- SSE envia estado inicial e broadcasts de estado; polling fallback consulta `/state` somente quando SSE não está conectado.
+- SSE envia snapshot inicial quando disponível; polling controlado consulta `/state` e é a fonte confiável de sincronização em Netlify/serverless.
 - Ao pular nível, `currentLevel` incrementa e `timeRemaining` reinicia.
-- Ao chegar a zero, um cliente conectado dispara a ação interna `advance` para avançar o nível no servidor.
+- Ao chegar a zero, um cliente autenticado dispara a ação interna `advance`; a API valida que o timer venceu e usa lock curto por nível para reduzir avanço duplicado.
 - Ao atingir o nível 27 (último), o botão "Pular" é desabilitado.
 
 ### 5. Jogadores (Host)
@@ -46,7 +47,7 @@ App web PWA para gerenciamento de torneios de poker presenciais. Um jogador cria
 ### 6. Configurações (Host)
 
 - Host pode alterar config durante o torneio.
-- Campos editáveis: `buyIn`, `rebuySingle`, `rebuyDouble`, `addon`, `prizeCount` (3–5), `levelDuration` (minutos por nível).
+- Campos editáveis: `buyIn`, `rebuySingle`, `rebuyDouble`, `addon`, `prizeCount` (3–5), `levelDuration` (minutos por nível), `roundingStep`.
 
 ### 7. Encerrar Torneio / Ranking (Host)
 
@@ -64,7 +65,7 @@ App web PWA para gerenciamento de torneios de poker presenciais. Um jogador cria
 ```typescript
 {
   id: string;                  // "poker-{8 chars aleatórios}"
-  code: string;                // 6 chars uppercase (sem 0, O, I, 1)
+  code: string;                // 3 chars uppercase (sem 0, O, I, 1)
   hostToken: string;           // 8 chars aleatórios — autenticação do host
   createdAt: number;           // Unix timestamp (ms)
   state: 'setup' | 'running' | 'finished';
@@ -72,7 +73,7 @@ App web PWA para gerenciamento de torneios de poker presenciais. Um jogador cria
   players: Player[];
   timer: TimerState;
   ranking: RankingState;
-  extras: ExtraExpense[];      // Reservado para uso futuro
+  extras: ExtraExpense[];
 }
 ```
 
@@ -80,12 +81,13 @@ App web PWA para gerenciamento de torneios de poker presenciais. Um jogador cria
 
 | Campo | Tipo | Default | Restrições |
 |---|---|---|---|
-| `buyIn` | number | 100 | — |
-| `rebuySingle` | number | 100 | — |
-| `rebuyDouble` | number | 200 | — |
-| `addon` | number | 100 | — |
+| `buyIn` | number | 20 | >= 0 |
+| `rebuySingle` | number | 10 | > 0 |
+| `rebuyDouble` | number | 20 | > 0 |
+| `addon` | number | 20 | > 0 |
 | `prizeCount` | number | 3 | 3–5 |
-| `levelDuration` | number | 12 | minutos por nível |
+| `levelDuration` | number | 12 | minutos por nível, > 0 |
+| `roundingStep` | number | 1 | > 0 |
 
 ### `Player`
 
@@ -94,7 +96,9 @@ App web PWA para gerenciamento de torneios de poker presenciais. Um jogador cria
   id: string;       // playerToken (16 chars) — também é o token de auth
   name: string;     // max 20 chars, único no torneio
   buyins: number;   // padrão 1 ao adicionar via /players; 0 ao entrar via /join
-  rebuys: number;
+  rebuySingleCount?: number;
+  rebuyDoubleCount?: number;
+  rebuys: number;   // total derivado/compatibilidade com dados antigos
   addon: boolean;
   isHost: boolean;
 }
@@ -147,7 +151,7 @@ App web PWA para gerenciamento de torneios de poker presenciais. Um jogador cria
 ```json
 {
   "id": "poker-abcdefgh",
-  "code": "AB23XZ",
+  "code": "AB2",
   "hostToken": "xyzxyzxy",
   "tournament": { ...Tournament }
 }
@@ -163,22 +167,19 @@ App web PWA para gerenciamento de torneios de poker presenciais. Um jogador cria
 
 **Request body**:
 ```json
-{ "code": "AB23XZ", "playerName": "João" }
+{ "code": "AB2" }
 ```
 
 **Response 200**:
 ```json
 {
   "tournament": { ...Tournament },
-  "playerToken": "abcdefghijklmnop",
-  "role": "player"
+  "role": "none"
 }
 ```
 
 **Errors**:
-- `400` — code ou playerName ausentes
-- `400` — nome > 20 chars
-- `400` — nome já em uso
+- `400` — code ausente
 - `404` — código inválido ou torneio não encontrado
 
 ---
@@ -235,7 +236,7 @@ App web PWA para gerenciamento de torneios de poker presenciais. Um jogador cria
 ```
 data: {"type":"state","data":{...Tournament}}   ← enviado ao conectar
 
-data: {"type":"timer","data":{...TimerState}}   ← reservado para broadcasts de timer quando necessário
+: connected {clientId}                          ← comentário/keep-alive opcional
 ```
 
 **Errors**: `401` sem token, `403` token inválido, `404` torneio não encontrado.
@@ -258,6 +259,12 @@ data: {"type":"timer","data":{...TimerState}}   ← reservado para broadcasts de
 { "action": "remove", "playerId": "abc123" }
 ```
 
+**Request body (rebuy / removeRebuy)**:
+```json
+{ "action": "rebuy", "playerId": "abc123", "rebuyType": "single" }
+{ "action": "removeRebuy", "playerId": "abc123", "rebuyType": "double" }
+```
+
 **Response 200**:
 ```json
 { "players": [ ...Player[] ] }
@@ -273,7 +280,7 @@ data: {"type":"timer","data":{...TimerState}}   ← reservado para broadcasts de
 
 **Request body**: qualquer subconjunto de `TournamentConfig`.
 
-**Validação**: `prizeCount` deve ser entre 3 e 5.
+**Validação**: `buyIn` pode ser zero; demais valores monetários, `levelDuration` e `roundingStep` devem ser positivos; `prizeCount` deve ser inteiro entre 3 e 5.
 
 **Response 200**:
 ```json
@@ -291,10 +298,22 @@ data: {"type":"timer","data":{...TimerState}}   ← reservado para broadcasts de
 { "positions": [{ "playerId": "abc", "position": 1 }, ...] }
 ```
 
+**Request body (reopen)**:
+```json
+{ "action": "reopen" }
+```
+
+**Request body (finish without ranking)**:
+```json
+{ "action": "finishWithoutRanking" }
+```
+
 **Comportamento**:
 1. Calcula pot total somando buyins + rebuys + addons de todos os players.
-2. Distribui prêmios por ICM simplificado (percentuais fixos: 50%, 30%, 15%, 4%, 1%).
+2. Distribui prêmios por percentuais SNG ou pelos valores enviados pelo cliente (ICM/manual), respeitando `roundingStep`.
 3. Altera `tournament.state` para `finished`.
+4. `action: "reopen"` muda o estado de volta para `running` ou `setup`, permitindo editar e finalizar novamente.
+5. `action: "finishWithoutRanking"` finaliza sem posições, para usar o app como calculadora de extras/acerto.
 
 **Response 200**:
 ```json
@@ -342,15 +361,16 @@ data: {"type":"timer","data":{...TimerState}}   ← reservado para broadcasts de
 | Ação | Host | Player | Anônimo |
 |---|---|---|---|
 | Criar torneio | ✅ | ✅ | ✅ |
-| Entrar no torneio | ✅ | ✅ | ✅ |
+| Visualizar torneio | ✅ | ✅ | ✅ |
 | Ver estado | ✅ | ✅ | ✅ (role=none) |
 | Conectar ao stream | ✅ | ✅ | ❌ |
 | Controlar timer | ✅ | ❌ | ❌ |
+| Avançar timer vencido (`advance`) | ✅ | ✅ | ❌ |
 | Adicionar/remover player | ✅ | ❌ | ❌ |
 | Atualizar config | ✅ | ❌ | ❌ |
 | Finalizar torneio | ✅ | ❌ | ❌ |
 
-**Mecanismo**: `hostToken` é gerado no create e armazenado no objeto `Tournament`. `playerToken` é gerado no join e equivale ao `player.id`. Ambos são passados via `Authorization: Bearer` (ou `?token=` no stream SSE).
+**Mecanismo**: `hostToken` é gerado no create e armazenado no objeto `Tournament`. Visualização por código é anônima (`role=none`) e não cria jogador. Tokens são passados via `Authorization: Bearer` (ou `?token=` no stream SSE) quando existem.
 
 ---
 
@@ -360,9 +380,7 @@ data: {"type":"timer","data":{...TimerState}}   ← reservado para broadcasts de
 |---|---|---|
 | 1 | Timer depende de cliente conectado para disparar `advance` ao zerar | Se nenhum cliente estiver ativo no exato momento, avanço pode atrasar até nova interação/sync |
 | 2 | Sem rate limiting nas APIs | Host/player pode fazer spam de requisições |
-| 3 | Sem validação de `buyins`/`rebuys`/`addon` via API | Dados de players só atualizados via UI |
-| 4 | `removePlayer` não faz atualização local otimista | UI demora até próximo evento SSE/polling |
-| 5 | `joinTournament` no hook não faz `setTournament` imediato | Flash de null state ao entrar |
+| 3 | Sem transações Redis completas para mutações concorrentes gerais | Ações simultâneas do host podem sobrescrever estado se ocorrerem no mesmo instante |
 | 6 | `tournament.timer` undefined causa loading infinito sem escape | Torneio corrompido prende o usuário |
 
 ---

@@ -44,3 +44,17 @@ const token = url.searchParams.get('token');
 - Servidor persiste estado base do timer e processa ações `start`, `pause`, `reset`, `skip` e `advance`.
 - Clientes calculam a contagem localmente a partir de `startedAt` e `timeRemaining`; quando chega a zero, um cliente dispara `advance`.
 - Motivo: evitar dependência de `setInterval`/`setTimeout` em memória de processo, que é frágil em Netlify/serverless.
+
+## 2026-04-25
+
+### Revisão Pré-build - Correções de Estabilização
+
+- Sincronização confiável passou a ser polling controlado em `/state`; SSE fica como snapshot inicial, sem broadcast em `Map` de memória.
+- `advance` do timer pode ser disparado por player autenticado, mas só avança se o servidor calcular que o nível venceu; há lock curto por nível/`startedAt` para reduzir avanço duplicado.
+- Upstash Redis agora falha alto em operações de KV em vez de engolir erros, para rotas críticas retornarem 500 quando persistência falhar.
+- Rebuys passaram a manter contadores separados `rebuySingleCount` e `rebuyDoubleCount`, preservando `rebuys` como total/compatibilidade.
+- UI voltou a exibir cada rebuy como badge individual removível; a API aceita `removeRebuy` para corrigir lançamentos adicionados por engano.
+- Ranking finalizado pode ser reaberto pelo host via `POST /ranking` com `{ action: "reopen" }`, voltando para `running` ou `setup`.
+- `buyIn` pode ser `0`; o host pode finalizar sem ranking com `{ action: "finishWithoutRanking" }` para usar o app como calculadora de extras/acerto.
+- Códigos de convite passaram a ter 3 caracteres para simplificar entrada em torneios com poucos usuários.
+- Visualizar torneio por código não cria jogador. Apenas o host adiciona jogadores; espectadores entram como `role: none`.
