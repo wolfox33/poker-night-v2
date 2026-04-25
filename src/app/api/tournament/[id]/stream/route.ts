@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
-import { getTournament, setTournament } from '@/lib/kv';
-import { Tournament, BLINDS_LEVELS } from '@/types/tournament';
+import { getTournament } from '@/lib/kv';
+import { Tournament } from '@/types/tournament';
 
 const clients = new Map<string, Map<string, ReadableStreamDefaultController>>();
 

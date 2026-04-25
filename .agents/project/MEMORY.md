@@ -32,4 +32,15 @@ const token = url.searchParams.get('token');
 - Commit: `023fc72` - fix: read token from query params in stream SSE endpoint
 - App funcionando localmente com `npm run dev`
 - Upstash Redis configurado como storage
-- Timer sincronizado via servidor (não afetado por background do celular)
+- Timer era sincronizado via servidor neste momento histórico; decisão posterior mudou para timer client-authoritative.
+
+
+## 2026-04-24
+
+### Timer - Decisão Arquitetural Atual
+
+- Commit de referência: `6f498f3` - `feat: client-authoritative timer - eliminate server-side loop`
+- Decisão: não rodar loop de timer no servidor/SSE.
+- Servidor persiste estado base do timer e processa ações `start`, `pause`, `reset`, `skip` e `advance`.
+- Clientes calculam a contagem localmente a partir de `startedAt` e `timeRemaining`; quando chega a zero, um cliente dispara `advance`.
+- Motivo: evitar dependência de `setInterval`/`setTimeout` em memória de processo, que é frágil em Netlify/serverless.

@@ -2,7 +2,7 @@
 
 ## Visão Geral
 
-App web PWA para gerenciamento de torneios de poker presenciais. Um jogador cria o torneio (host) e compartilha um código de 6 caracteres. Os outros jogadores entram via código e acompanham o timer em tempo real. O timer roda no servidor e é sincronizado via SSE, não sendo afetado pelo background/sleep do celular.
+App web PWA para gerenciamento de torneios de poker presenciais. Um jogador cria o torneio (host) e compartilha um código de 6 caracteres. Os outros jogadores entram via código e acompanham o timer em tempo real. O servidor persiste o estado base do timer e os clientes calculam a contagem localmente a partir de `startedAt`, com sincronização de estado via SSE.
 
 ---
 
@@ -30,9 +30,11 @@ App web PWA para gerenciamento de torneios de poker presenciais. Um jogador cria
 ### 4. Controle do Timer (Host)
 
 - Host pode: **start**, **pause**, **reset**, **skip** (próximo nível).
-- Timer roda no servidor via `setInterval` de 1 segundo.
-- Todos os clientes conectados recebem eventos SSE `type: "timer"` a cada segundo.
+- Timer é client-authoritative: o servidor persiste `startedAt`, `timeRemaining`, `totalElapsed`, `currentLevel` e `isRunning`.
+- Clientes interpolam a contagem localmente; não há `setInterval` server-side por torneio.
+- SSE envia estado inicial e broadcasts de estado; polling fallback consulta `/state` somente quando SSE não está conectado.
 - Ao pular nível, `currentLevel` incrementa e `timeRemaining` reinicia.
+- Ao chegar a zero, um cliente conectado dispara a ação interna `advance` para avançar o nível no servidor.
 - Ao atingir o nível 27 (último), o botão "Pular" é desabilitado.
 
 ### 5. Jogadores (Host)
@@ -204,7 +206,7 @@ App web PWA para gerenciamento de torneios de poker presenciais. Um jogador cria
 
 **Request body**:
 ```json
-{ "action": "start" | "pause" | "reset" | "skip" }
+{ "action": "start" | "pause" | "reset" | "skip" | "advance" }
 ```
 
 **Comportamento**:
@@ -212,6 +214,7 @@ App web PWA para gerenciamento de torneios de poker presenciais. Um jogador cria
 - `pause` — para o timer; acumula `totalElapsed`.
 - `reset` — zera timer para nível 1; altera `state` para `setup`.
 - `skip` — avança para o próximo nível (máximo nível 27).
+- `advance` — avança automaticamente para o próximo nível quando um cliente detecta contagem zerada.
 
 **Response 200**:
 ```json
@@ -232,12 +235,12 @@ App web PWA para gerenciamento de torneios de poker presenciais. Um jogador cria
 ```
 data: {"type":"state","data":{...Tournament}}   ← enviado ao conectar
 
-data: {"type":"timer","data":{...TimerState}}   ← enviado a cada segundo quando running
+data: {"type":"timer","data":{...TimerState}}   ← reservado para broadcasts de timer quando necessário
 ```
 
 **Errors**: `401` sem token, `403` token inválido, `404` torneio não encontrado.
 
-> **Limitação**: o timer server-side usa `setTimeout` em memória de processo. Em ambientes serverless (Netlify Functions), múltiplas instâncias não compartilham estado — o timer pode parar entre invocações.
+> **Decisão atual**: o loop server-side de timer foi removido. O modelo client-authoritative evita depender de `setTimeout`/`setInterval` em memória de processo, que é frágil em ambientes serverless como Netlify Functions.
 
 ---
 
@@ -355,10 +358,10 @@ data: {"type":"timer","data":{...TimerState}}   ← enviado a cada segundo quand
 
 | # | Descrição | Impacto |
 |---|---|---|
-| 1 | Timer usa `setTimeout` em memória de processo | Serverless (Netlify) pode perder o timer entre cold starts |
+| 1 | Timer depende de cliente conectado para disparar `advance` ao zerar | Se nenhum cliente estiver ativo no exato momento, avanço pode atrasar até nova interação/sync |
 | 2 | Sem rate limiting nas APIs | Host/player pode fazer spam de requisições |
 | 3 | Sem validação de `buyins`/`rebuys`/`addon` via API | Dados de players só atualizados via UI |
-| 4 | `removePlayer` não faz atualização local otimista | UI demora até próximo evento SSE |
+| 4 | `removePlayer` não faz atualização local otimista | UI demora até próximo evento SSE/polling |
 | 5 | `joinTournament` no hook não faz `setTournament` imediato | Flash de null state ao entrar |
 | 6 | `tournament.timer` undefined causa loading infinito sem escape | Torneio corrompido prende o usuário |
 

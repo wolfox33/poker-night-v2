@@ -51,16 +51,6 @@ Sempre:
 11. Perguntar antes de assumir comportamento quando houver ambiguidade real ou risco alto.
 12. Ao concluir qualquer tarefa significativa, avaliar se algo vale persistir em `.agents/project/MEMORY.md`: workarounds descobertos, decisões tomadas, bugs conhecidos ou lições aprendidas. Registrar com data. Remover entradas obsoletas.
 
-### Surgical Changes
-Ao editar código existente:
-- Não "melhorar" código adjacente, comentários ou formatting
-- Não refatorar coisas que não estão quebradas
-- Manter estilo existente, mesmo que faria diferente
-- Se notar código morto não relacionado, mencionar — não deletar
-- Quando suas mudanças criam órfãos, remover imports/variáveis/funções que SUAS mudanças tornaram unused
-- Não remover código morto preexistente a menos que solicitado
-- Teste: cada linha alterada deve rastrear diretamente para o request do usuário
-
 Nunca:
 - inventar requisitos ausentes
 - quebrar contratos sem migração
@@ -77,17 +67,6 @@ Para qualquer tarefa significativa, seguir esta sequência:
 4. Testar: rodar testes relacionados e criar novos quando a mudança exigir cobertura adicional.
 5. Revisar: reler o diff, validar impacto e só então considerar a tarefa concluída.
 
-### Goal-Driven Execution
-Para tarefas multi-step, transformar instruções imperativas em objetivos verificáveis com loop de validação:
-
-```
-1. [Passo] → verificar: [critério]
-2. [Passo] → verificar: [critério]
-3. [Passo] → verificar: [critério]
-```
-
-Critérios de sucesso fortes permitem loop independente. Critérios fracos ("fazer funcionar") exigem clarificação constante.
-
 Regras do fluxo:
 - nunca pular a etapa de entendimento
 - nunca considerar concluído sem validação adequada
@@ -98,6 +77,28 @@ Regras do fluxo:
 - nunca entregar mudança de lógica nova sem validar necessidade de testes
 - nunca alterar arquitetura transversal sem explicitar o impacto
 - nunca expandir escopo silenciosamente; registrar ou mencionar o ponto relacionado em vez de implementar sem alinhamento
+
+## Engineering Conventions
+
+### General
+- preferir funções puras quando possível e isolar efeitos colaterais
+- usar nomes explícitos e sem ambiguidade
+- manter arquivos coesos e focados em uma responsabilidade
+- evitar abstração prematura
+
+### Backend / API
+- validar entradas na borda do sistema
+- retornar erros com contexto e semântica adequada
+- não concentrar lógica de negócio em controllers ou handlers rasos
+
+### Frontend
+- preferir componentes pequenos e composáveis
+- usar estado local antes de introduzir estado global
+- acessibilidade é requisito, não detalhe opcional
+
+### Testing
+- testar fluxos críticos e lógica de negócio
+- ao corrigir bug, validar a causa raiz e, quando fizer sentido, adicionar cobertura para evitar regressão
 
 ## Spec-Gap Protocol (Anti-Hallucination)
 Quando houver ambiguidade na spec:
@@ -113,7 +114,6 @@ Quando houver ambiguidade na spec:
 - Preferir checklists e templates curtos.
 - Consultar `.agents/USER.md` para preferências e estilo do usuário.
 - Consultar `.agents/project/context.md` para stack, repo e constraints do projeto.
-- Consultar `.agents/project/context-design.md` para design system específico (apenas em tasks de UI/frontend).
 - Consultar `.agents/project/MEMORY.md` para fatos emergentes, decisões e workarounds da sessão atual.
 
 ## Delegation
@@ -129,7 +129,6 @@ Subagents devem ser acionados por fase do ciclo de vida:
 - Subagentes: `.agents/subagents/`
 - Workflows: `.agents/workflows/`
 - Contexto do projeto: `.agents/project/context.md`
-- Contexto de design: `.agents/project/context-design.md`
 - Memória do projeto: `.agents/project/MEMORY.md`
 - Perfil do usuário: `.agents/USER.md`
 

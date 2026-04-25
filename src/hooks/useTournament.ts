@@ -20,7 +20,7 @@ interface UseTournamentReturn {
   role: 'host' | 'player' | 'none';
   createTournament: (config?: Partial<TournamentConfig>) => Promise<{ id: string; code: string; hostToken: string }>;
   joinTournament: (code: string, playerName: string) => Promise<string>;
-  timerAction: (action: 'start' | 'pause' | 'reset' | 'skip') => Promise<void>;
+  timerAction: (action: 'start' | 'pause' | 'reset' | 'skip' | 'advance') => Promise<void>;
   addPlayer: (name: string, buyin?: number) => Promise<void>;
   removePlayer: (playerId: string) => Promise<void>;
   rebuyPlayer: (playerId: string, rebuyType: 'single' | 'double') => Promise<void>;
