@@ -48,6 +48,27 @@ export function useTournament(): UseTournamentReturn {
   const MAX_RETRIES = 5;
   const BASE_DELAY = 3000;
 
+  const clearStoredSession = useCallback(() => {
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+    if (retryTimeoutRef.current) {
+      clearTimeout(retryTimeoutRef.current);
+      retryTimeoutRef.current = null;
+    }
+    localStorage.removeItem('poker_host_token');
+    localStorage.removeItem('poker_player_token');
+    localStorage.removeItem('poker_tournament_id');
+    tournamentIdRef.current = null;
+    tokenRef.current = null;
+    retryCountRef.current = 0;
+    setTournament(null);
+    setRole('none');
+    setCanEdit(false);
+    setIsConnected(false);
+  }, []);
+
   const connectToStream = useCallback((id: string, token: string) => {
     // Clear any pending retry
     if (retryTimeoutRef.current) {
@@ -121,6 +142,10 @@ export function useTournament(): UseTournamentReturn {
       });
 
       if (!res.ok) {
+        if (res.status === 404) {
+          clearStoredSession();
+          throw new Error('Tournament not found. Create a new tournament or enter a valid code.');
+        }
         throw new Error('Failed to fetch tournament state');
       }
 
@@ -137,7 +162,7 @@ export function useTournament(): UseTournamentReturn {
       setError(err instanceof Error ? err.message : 'Failed to load tournament');
       setIsLoading(false);
     }
-  }, [connectToStream]);
+  }, [clearStoredSession, connectToStream]);
 
   const createTournament = useCallback(async (config?: Partial<TournamentConfig>) => {
     setIsLoading(true);
@@ -508,18 +533,8 @@ export function useTournament(): UseTournamentReturn {
   }, []);
 
   const logout = useCallback(() => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-    }
-    localStorage.removeItem('poker_host_token');
-    localStorage.removeItem('poker_player_token');
-    localStorage.removeItem('poker_tournament_id');
-    setTournament(null);
-    setRole('none');
-    setCanEdit(false);
-    tournamentIdRef.current = null;
-    tokenRef.current = null;
-  }, []);
+    clearStoredSession();
+  }, [clearStoredSession]);
 
   // Serverless-safe sync: SSE may only deliver the initial state depending on the host.
   useEffect(() => {
@@ -531,7 +546,13 @@ export function useTournament(): UseTournamentReturn {
       fetch(`/api/tournament/${id}/state`, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       })
-        .then(r => r.ok ? r.json() : null)
+        .then(r => {
+          if (r.status === 404) {
+            clearStoredSession();
+            return null;
+          }
+          return r.ok ? r.json() : null;
+        })
         .then((data: TournamentResponse | null) => {
           if (!data?.tournament) return;
           setTournament(data.tournament);
@@ -545,7 +566,7 @@ export function useTournament(): UseTournamentReturn {
 
     const intervalId = setInterval(refresh, tournament?.timer?.isRunning ? 5000 : 10000);
     return () => clearInterval(intervalId);
-  }, [tournament?.id, tournament?.timer?.isRunning]);
+  }, [clearStoredSession, tournament?.id, tournament?.timer?.isRunning]);
 
   // Initialize on mount - check for stored session
   useEffect(() => {
