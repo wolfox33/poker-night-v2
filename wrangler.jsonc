@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "poker-night-v2",
+  "compatibility_date": "2026-04-27",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "observability": {
+    "enabled": true
+  },
+  "vars": {
+    "UPSTASH_REDIS_REST_URL": "https://up-starling-99434.upstash.io"
+  }
+}

@@ -43,5 +43,7 @@ Publish directory: `.next`
 
 Na Cloudflare, configure as variáveis em `Workers & Pages` → projeto → `Settings` → `Variables and Secrets`:
 
-- `UPSTASH_REDIS_REST_URL`
-- `UPSTASH_REDIS_REST_TOKEN`
+- `UPSTASH_REDIS_REST_URL` como texto comum, ou em `wrangler.jsonc`
+- `UPSTASH_REDIS_REST_TOKEN` como Secret
+
+Se usar `wrangler deploy`, mantenha `UPSTASH_REDIS_REST_URL` no `wrangler.jsonc` e configure `UPSTASH_REDIS_REST_TOKEN` como Secret no Worker. Variáveis comuns configuradas apenas pelo dashboard podem ser removidas quando o deploy usa configuração local.

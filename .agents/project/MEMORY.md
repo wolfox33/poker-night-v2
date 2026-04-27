@@ -68,3 +68,4 @@ const token = url.searchParams.get('token');
 - Decisão: fallback em memória deve existir apenas em desenvolvimento local; em produção, KV falha alto com erro explícito de Redis não configurado.
 - Torneios criados antes das variáveis do Upstash estarem ativas não são recuperáveis se ficaram apenas em memória. O frontend deve limpar a sessão local quando `/state` retorna 404 para parar polling/SSE em IDs inválidos.
 - A validação de variáveis do Upstash não pode rodar no import do módulo, porque `next build` coleta dados das rotas com `NODE_ENV=production` e a Cloudflare pode não expor secrets de runtime nessa etapa. Validar somente quando uma operação KV for executada.
+- `wrangler deploy` usa configuração local e pode sobrescrever variáveis configuradas no dashboard. Manter `UPSTASH_REDIS_REST_URL` em `wrangler.jsonc` e configurar `UPSTASH_REDIS_REST_TOKEN` como Secret no Worker. Se o token aparecer em log, rotacionar no Upstash.
