@@ -37,9 +37,11 @@ npm run build
 
 ## Deploy
 
-Build command: `npm run build`
+Build command: `npx @opennextjs/cloudflare build`
 
-Publish directory: `.next`
+Deploy command: `npx @opennextjs/cloudflare deploy`
+
+Output directory: `.open-next`
 
 Na Cloudflare, configure as variáveis em `Workers & Pages` → projeto → `Settings` → `Variables and Secrets`:
 
@@ -47,3 +49,5 @@ Na Cloudflare, configure as variáveis em `Workers & Pages` → projeto → `Set
 - `UPSTASH_REDIS_REST_TOKEN` como Secret
 
 Se usar `wrangler deploy`, mantenha `UPSTASH_REDIS_REST_URL` no `wrangler.jsonc` e configure `UPSTASH_REDIS_REST_TOKEN` como Secret no Worker. Variáveis comuns configuradas apenas pelo dashboard podem ser removidas quando o deploy usa configuração local.
+
+Não use `npx wrangler deploy` diretamente para este app Next.js. O deploy deve passar pelo adapter OpenNext para gerar `.open-next/worker.js`.
