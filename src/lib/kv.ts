@@ -79,6 +79,9 @@ function createMemoryClient(): KVClient {
 
 export function getClient(): KVClient {
   if (!UPSTASH_URL || !UPSTASH_TOKEN) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('Upstash Redis is not configured. Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN.');
+    }
     return createMemoryClient();
   }
   return createUpstashClient();

@@ -8,7 +8,7 @@ App Next.js para gerenciar torneios presenciais de poker com código de convite,
 - TypeScript
 - Tailwind CSS
 - Upstash Redis via REST
-- Netlify
+- Cloudflare
 
 ## Desenvolvimento
 
@@ -25,6 +25,7 @@ UPSTASH_REDIS_REST_TOKEN=
 ```
 
 Sem essas variáveis, o app usa storage em memória apenas para desenvolvimento local.
+Em produção, essas variáveis são obrigatórias. Sem elas, torneios podem ser perdidos entre requests em ambientes serverless/edge.
 
 ## Validação
 
@@ -39,3 +40,8 @@ npm run build
 Build command: `npm run build`
 
 Publish directory: `.next`
+
+Na Cloudflare, configure as variáveis em `Workers & Pages` → projeto → `Settings` → `Variables and Secrets`:
+
+- `UPSTASH_REDIS_REST_URL`
+- `UPSTASH_REDIS_REST_TOKEN`

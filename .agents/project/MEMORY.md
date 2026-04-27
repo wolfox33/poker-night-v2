@@ -58,3 +58,11 @@ const token = url.searchParams.get('token');
 - `buyIn` pode ser `0`; o host pode finalizar sem ranking com `{ action: "finishWithoutRanking" }` para usar o app como calculadora de extras/acerto.
 - Códigos de convite passaram a ter 3 caracteres para simplificar entrada em torneios com poucos usuários.
 - Visualizar torneio por código não cria jogador. Apenas o host adiciona jogadores; espectadores entram como `role: none`.
+
+## 2026-04-27
+
+### Cloudflare - Persistência Obrigatória
+
+- Erro observado em produção: `/api/tournament/{id}/state` retornando 404 logo após criar/acessar torneio.
+- Causa provável: variáveis `UPSTASH_REDIS_REST_URL` e/ou `UPSTASH_REDIS_REST_TOKEN` ausentes no Cloudflare, fazendo o app cair para storage em memória serverless/edge.
+- Decisão: fallback em memória deve existir apenas em desenvolvimento local; em produção, KV falha alto com erro explícito de Redis não configurado.
