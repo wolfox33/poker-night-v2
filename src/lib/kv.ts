@@ -1,8 +1,5 @@
 import { Redis } from '@upstash/redis';
 
-const UPSTASH_URL = process.env.UPSTASH_REDIS_REST_URL;
-const UPSTASH_TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN;
-
 export interface KVClient {
   get(key: string): Promise<string | null>;
   set(key: string, value: string, ttl?: number): Promise<void>;
@@ -10,10 +7,10 @@ export interface KVClient {
   delete(key: string): Promise<void>;
 }
 
-function createUpstashClient(): KVClient {
+function createUpstashClient(url: string, token: string): KVClient {
   const redis = new Redis({
-    url: UPSTASH_URL!,
-    token: UPSTASH_TOKEN!,
+    url,
+    token,
   });
 
   return {
@@ -78,33 +75,34 @@ function createMemoryClient(): KVClient {
 }
 
 export function getClient(): KVClient {
-  if (!UPSTASH_URL || !UPSTASH_TOKEN) {
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+
+  if (!url || !token) {
     if (process.env.NODE_ENV === 'production') {
       throw new Error('Upstash Redis is not configured. Set UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN.');
     }
     return createMemoryClient();
   }
-  return createUpstashClient();
+  return createUpstashClient(url, token);
 }
 
-export const kv = getClient();
-
 export async function getTournament(id: string): Promise<string | null> {
-  return kv.get(`tournament:${id}`);
+  return getClient().get(`tournament:${id}`);
 }
 
 export async function setTournament(id: string, data: string, ttl?: number): Promise<void> {
-  return kv.set(`tournament:${id}`, data, ttl || 86400);
+  return getClient().set(`tournament:${id}`, data, ttl || 86400);
 }
 
 export async function getTournamentByCode(code: string): Promise<string | null> {
-  return kv.get(`code:${code}`);
+  return getClient().get(`code:${code}`);
 }
 
 export async function setTournamentCode(code: string, id: string, ttl?: number): Promise<void> {
-  return kv.set(`code:${code}`, id, ttl || 86400);
+  return getClient().set(`code:${code}`, id, ttl || 86400);
 }
 
 export async function acquireAdvanceLock(id: string, level: number, startedAt: number): Promise<boolean> {
-  return kv.setIfNotExists(`advance:${id}:${level}:${startedAt}`, '1', 30);
+  return getClient().setIfNotExists(`advance:${id}:${level}:${startedAt}`, '1', 30);
 }
