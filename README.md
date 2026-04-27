@@ -43,6 +43,8 @@ Deploy command: `npx @opennextjs/cloudflare deploy`
 
 Output directory: `.open-next`
 
+Current Cloudflare deployment path: OpenNext adapter with `wrangler.jsonc`.
+
 Na Cloudflare, configure as variáveis em `Workers & Pages` → projeto → `Settings` → `Variables and Secrets`:
 
 - `UPSTASH_REDIS_REST_URL` como texto comum, ou em `wrangler.jsonc`
