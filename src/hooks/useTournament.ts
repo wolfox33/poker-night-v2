@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Tournament,
   TournamentResponse,
-  TimerState,
   TournamentConfig,
 } from '@/types/tournament';
 
@@ -40,99 +39,19 @@ export function useTournament(): UseTournamentReturn {
   const [canEdit, setCanEdit] = useState(false);
   const [role, setRole] = useState<'host' | 'player' | 'none'>('none');
 
-  const eventSourceRef = useRef<EventSource | null>(null);
   const tournamentIdRef = useRef<string | null>(null);
   const tokenRef = useRef<string | null>(null);
-  const retryCountRef = useRef(0);
-  const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const MAX_RETRIES = 5;
-  const BASE_DELAY = 3000;
 
   const clearStoredSession = useCallback(() => {
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-      eventSourceRef.current = null;
-    }
-    if (retryTimeoutRef.current) {
-      clearTimeout(retryTimeoutRef.current);
-      retryTimeoutRef.current = null;
-    }
     localStorage.removeItem('poker_host_token');
     localStorage.removeItem('poker_player_token');
     localStorage.removeItem('poker_tournament_id');
     tournamentIdRef.current = null;
     tokenRef.current = null;
-    retryCountRef.current = 0;
     setTournament(null);
     setRole('none');
     setCanEdit(false);
     setIsConnected(false);
-  }, []);
-
-  const connectToStream = useCallback((id: string, token: string) => {
-    // Clear any pending retry
-    if (retryTimeoutRef.current) {
-      clearTimeout(retryTimeoutRef.current);
-      retryTimeoutRef.current = null;
-    }
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-    }
-
-    const protocol = window.location.protocol === 'https:' ? 'https' : 'http';
-    const host = window.location.host;
-    const url = `${protocol}://${host}/api/tournament/${id}/stream?token=${token}`;
-
-    const eventSource = new EventSource(url, {
-      withCredentials: true,
-    });
-
-    eventSource.onopen = () => {
-      setIsConnected(true);
-      setError(null);
-      retryCountRef.current = 0; // Reset retry counter on successful connection
-    };
-
-    eventSource.onmessage = (event) => {
-      try {
-        const message = JSON.parse(event.data);
-
-        if (message.type === 'state') {
-          setTournament(message.data);
-        } else if (message.type === 'timer') {
-          setTournament((prev) => {
-            if (!prev) return null;
-            return { ...prev, timer: message.data as TimerState };
-          });
-        }
-      } catch (err) {
-        console.error('Failed to parse SSE message:', err);
-      }
-    };
-
-    eventSource.onerror = (err) => {
-      setIsConnected(false);
-      eventSource.close();
-
-      // EventSource doesn't expose status code directly, but we track retries
-      console.error('SSE connection error:', err);
-      if (retryCountRef.current >= MAX_RETRIES) {
-        console.error('SSE: Max retries reached, giving up');
-        return;
-      }
-
-      // Exponential backoff: 3s, 6s, 12s, 24s, 48s
-      const delay = BASE_DELAY * Math.pow(2, retryCountRef.current);
-      retryCountRef.current++;
-
-      retryTimeoutRef.current = setTimeout(() => {
-        if (tournamentIdRef.current && tokenRef.current) {
-          connectToStream(tournamentIdRef.current, tokenRef.current);
-        }
-      }, delay);
-    };
-
-    eventSourceRef.current = eventSource;
   }, []);
 
   const fetchState = useCallback(async (id: string, token?: string) => {
@@ -153,16 +72,14 @@ export function useTournament(): UseTournamentReturn {
       setTournament(data.tournament);
       setRole(data.role);
       setCanEdit(data.canEdit);
+      setIsConnected(true);
       setIsLoading(false);
-
-      if (token) {
-        connectToStream(id, token);
-      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load tournament');
+      setIsConnected(false);
       setIsLoading(false);
     }
-  }, [clearStoredSession, connectToStream]);
+  }, [clearStoredSession]);
 
   const createTournament = useCallback(async (config?: Partial<TournamentConfig>) => {
     setIsLoading(true);
@@ -192,9 +109,7 @@ export function useTournament(): UseTournamentReturn {
       setTournament(data.tournament);
       setRole('host');
       setCanEdit(true);
-
-      // Connect to stream
-      connectToStream(data.id, data.hostToken);
+      setIsConnected(true);
 
       return { id: data.id, code: data.code, hostToken: data.hostToken };
     } catch (err) {
@@ -203,7 +118,7 @@ export function useTournament(): UseTournamentReturn {
     } finally {
       setIsLoading(false);
     }
-  }, [connectToStream]);
+  }, []);
 
   const joinTournament = useCallback(async (code: string) => {
     setIsLoading(true);
@@ -232,6 +147,7 @@ export function useTournament(): UseTournamentReturn {
       setRole('none');
       setCanEdit(false);
       setTournament(data.tournament);
+      setIsConnected(true);
 
       return data.tournament.id;
     } catch (err) {
@@ -558,8 +474,10 @@ export function useTournament(): UseTournamentReturn {
           setTournament(data.tournament);
           setRole(data.role);
           setCanEdit(data.canEdit);
+          setIsConnected(true);
         })
         .catch((err) => {
+          setIsConnected(false);
           console.error('Polling state refresh failed:', err);
         });
     };
@@ -584,12 +502,7 @@ export function useTournament(): UseTournamentReturn {
     }
 
     return () => {
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-      }
-      if (retryTimeoutRef.current) {
-        clearTimeout(retryTimeoutRef.current);
-      }
+      setIsConnected(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
