@@ -1,0 +1,22 @@
+name: Upstash Keepalive
+
+on:
+  schedule:
+    - cron: '0 9 */5 * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+
+    steps:
+      - name: Ping keepalive endpoint
+        run: |
+          curl --fail --show-error --silent \
+            --max-time 20 \
+            --header "Authorization: Bearer ${KEEPALIVE_SECRET}" \
+            "${KEEPALIVE_URL}/api/keepalive"
+        env:
+          KEEPALIVE_URL: ${{ secrets.KEEPALIVE_URL }}
+          KEEPALIVE_SECRET: ${{ secrets.KEEPALIVE_SECRET }}

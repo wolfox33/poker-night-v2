@@ -71,3 +71,11 @@ const token = url.searchParams.get('token');
 - `wrangler deploy` usa configuração local e pode sobrescrever variáveis configuradas no dashboard. Manter `UPSTASH_REDIS_REST_URL` em `wrangler.jsonc` e configurar `UPSTASH_REDIS_REST_TOKEN` como Secret no Worker. Se o token aparecer em log, rotacionar no Upstash.
 - Para Next.js no Cloudflare Workers com deploy command fixo em `npx wrangler deploy`, o build command `npm run build` deve gerar `.open-next/worker.js`. O script roda `next build && opennextjs-cloudflare build --skipNextBuild`; assim o `wrangler deploy` encontra `main: ".open-next/worker.js"` em `wrangler.jsonc`.
 - SSE/EventSource gerava erros recorrentes no Cloudflare Worker. O frontend agora usa apenas polling em `/state` como fonte de sincronização e considera `isConnected` verdadeiro quando o estado é carregado com sucesso.
+
+## 2026-04-28
+
+### Upstash Keepalive
+
+- Criado endpoint `GET /api/keepalive`, protegido por `KEEPALIVE_SECRET`, para escrever `keepalive:lastPing` no Redis.
+- Criado GitHub Actions workflow `.github/workflows/upstash-keepalive.yml` com schedule `0 9 */5 * *` para chamar o endpoint a cada 5 dias.
+- Configurar `KEEPALIVE_SECRET` como Secret na Cloudflare e no GitHub; configurar `KEEPALIVE_URL` como Secret no GitHub com a URL pública da aplicação sem barra final.

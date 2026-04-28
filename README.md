@@ -22,6 +22,7 @@ npm run dev
 ```bash
 UPSTASH_REDIS_REST_URL=
 UPSTASH_REDIS_REST_TOKEN=
+KEEPALIVE_SECRET=
 ```
 
 Sem essas variáveis, o app usa storage em memória apenas para desenvolvimento local.
@@ -49,7 +50,17 @@ Na Cloudflare, configure as variáveis em `Workers & Pages` → projeto → `Set
 
 - `UPSTASH_REDIS_REST_URL` como texto comum, ou em `wrangler.jsonc`
 - `UPSTASH_REDIS_REST_TOKEN` como Secret
+- `KEEPALIVE_SECRET` como Secret
 
 Se usar `wrangler deploy`, mantenha `UPSTASH_REDIS_REST_URL` no `wrangler.jsonc` e configure `UPSTASH_REDIS_REST_TOKEN` como Secret no Worker. Variáveis comuns configuradas apenas pelo dashboard podem ser removidas quando o deploy usa configuração local.
 
 O script `npm run build` executa `next build` e depois `opennextjs-cloudflare build --skipNextBuild`, gerando `.open-next/worker.js` para o `wrangler deploy`.
+
+## Upstash Keepalive
+
+O endpoint `GET /api/keepalive` escreve a chave `keepalive:lastPing` no Redis. Ele exige `Authorization: Bearer {KEEPALIVE_SECRET}`.
+
+O workflow `.github/workflows/upstash-keepalive.yml` chama esse endpoint a cada 5 dias. Configure estes secrets no GitHub:
+
+- `KEEPALIVE_URL`: URL pública da aplicação, sem barra final
+- `KEEPALIVE_SECRET`: mesmo valor configurado como Secret na Cloudflare
