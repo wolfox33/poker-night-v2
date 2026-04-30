@@ -7,6 +7,39 @@ import {
   TournamentConfig,
 } from '@/types/tournament';
 
+const HOST_TOKEN_STORAGE_KEY = 'poker_host_tokens';
+const LEGACY_HOST_TOKEN_STORAGE_KEY = 'poker_host_token';
+
+function getStoredHostTokens(): Record<string, string> {
+  try {
+    const storedTokens = localStorage.getItem(HOST_TOKEN_STORAGE_KEY);
+    if (!storedTokens) return {};
+    const parsedTokens = JSON.parse(storedTokens);
+    return parsedTokens && typeof parsedTokens === 'object' && !Array.isArray(parsedTokens)
+      ? parsedTokens
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+function getStoredHostToken(tournamentId: string): string | null {
+  return getStoredHostTokens()[tournamentId] || localStorage.getItem(LEGACY_HOST_TOKEN_STORAGE_KEY);
+}
+
+function storeHostToken(tournamentId: string, hostToken: string) {
+  const tokens = getStoredHostTokens();
+  tokens[tournamentId] = hostToken;
+  localStorage.setItem(HOST_TOKEN_STORAGE_KEY, JSON.stringify(tokens));
+  localStorage.setItem(LEGACY_HOST_TOKEN_STORAGE_KEY, hostToken);
+}
+
+function removeStoredHostToken(tournamentId: string) {
+  const tokens = getStoredHostTokens();
+  delete tokens[tournamentId];
+  localStorage.setItem(HOST_TOKEN_STORAGE_KEY, JSON.stringify(tokens));
+}
+
 interface UseTournamentReturn {
   tournament: Tournament | null;
   isLoading: boolean;
@@ -43,7 +76,7 @@ export function useTournament(): UseTournamentReturn {
   const tokenRef = useRef<string | null>(null);
 
   const clearStoredSession = useCallback(() => {
-    localStorage.removeItem('poker_host_token');
+    localStorage.removeItem(LEGACY_HOST_TOKEN_STORAGE_KEY);
     localStorage.removeItem('poker_player_token');
     localStorage.removeItem('poker_tournament_id');
     tournamentIdRef.current = null;
@@ -99,8 +132,8 @@ export function useTournament(): UseTournamentReturn {
 
       const data = await res.json();
 
-      // Store tokens
-      localStorage.setItem('poker_host_token', data.hostToken);
+      // Store host token by tournament so this browser can recover multiple hosted games.
+      storeHostToken(data.id, data.hostToken);
       localStorage.setItem('poker_tournament_id', data.id);
       tokenRef.current = data.hostToken;
       tournamentIdRef.current = data.id;
@@ -137,7 +170,7 @@ export function useTournament(): UseTournamentReturn {
       }
 
       const data = await res.json();
-      const existingHostToken = localStorage.getItem('poker_host_token');
+      const existingHostToken = getStoredHostToken(data.tournament.id);
       let authenticatedData: TournamentResponse | null = null;
 
       if (existingHostToken) {
@@ -158,13 +191,14 @@ export function useTournament(): UseTournamentReturn {
       tournamentIdRef.current = data.tournament.id;
 
       if (authenticatedData && existingHostToken) {
-        localStorage.setItem('poker_host_token', existingHostToken);
+        storeHostToken(data.tournament.id, existingHostToken);
         tokenRef.current = existingHostToken;
         setRole('host');
         setCanEdit(true);
         setTournament(authenticatedData.tournament);
       } else {
-        localStorage.removeItem('poker_host_token');
+        removeStoredHostToken(data.tournament.id);
+        localStorage.removeItem(LEGACY_HOST_TOKEN_STORAGE_KEY);
         tokenRef.current = null;
         setRole('none');
         setCanEdit(false);
@@ -513,7 +547,7 @@ export function useTournament(): UseTournamentReturn {
   // Initialize on mount - check for stored session
   useEffect(() => {
     const storedId = localStorage.getItem('poker_tournament_id');
-    const hostToken = localStorage.getItem('poker_host_token');
+    const hostToken = storedId ? getStoredHostToken(storedId) : null;
     const playerToken = localStorage.getItem('poker_player_token');
     const token = hostToken || playerToken;
 

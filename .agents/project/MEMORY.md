@@ -90,3 +90,4 @@ const token = url.searchParams.get('token');
 - Ao entrar por código, o frontend preserva temporariamente `poker_host_token` local e valida em `/state` se ele pertence ao torneio resolvido.
 - Se `/state` retornar `role: host`, o usuário volta como criador; se não, o token local é limpo e a entrada fica como visualizador (`role: none`).
 - Criar outro torneio em paralelo não concede host em torneio alheio, porque o token é comparado com o `hostToken` específico do torneio resolvido pelo código.
+- Evoluído para salvar múltiplos tokens no `localStorage` em `poker_host_tokens`, indexados por `tournamentId`. O token legado `poker_host_token` ainda é mantido para compatibilidade com sessões antigas e com o torneio atual.
