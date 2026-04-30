@@ -137,16 +137,40 @@ export function useTournament(): UseTournamentReturn {
       }
 
       const data = await res.json();
+      const existingHostToken = localStorage.getItem('poker_host_token');
+      let authenticatedData: TournamentResponse | null = null;
 
-      localStorage.removeItem('poker_host_token');
+      if (existingHostToken) {
+        const stateRes = await fetch(`/api/tournament/${data.tournament.id}/state`, {
+          headers: { Authorization: `Bearer ${existingHostToken}` },
+        });
+
+        if (stateRes.ok) {
+          const stateData: TournamentResponse = await stateRes.json();
+          if (stateData.role === 'host') {
+            authenticatedData = stateData;
+          }
+        }
+      }
+
       localStorage.removeItem('poker_player_token');
       localStorage.setItem('poker_tournament_id', data.tournament.id);
-      tokenRef.current = null;
       tournamentIdRef.current = data.tournament.id;
 
-      setRole('none');
-      setCanEdit(false);
-      setTournament(data.tournament);
+      if (authenticatedData && existingHostToken) {
+        localStorage.setItem('poker_host_token', existingHostToken);
+        tokenRef.current = existingHostToken;
+        setRole('host');
+        setCanEdit(true);
+        setTournament(authenticatedData.tournament);
+      } else {
+        localStorage.removeItem('poker_host_token');
+        tokenRef.current = null;
+        setRole('none');
+        setCanEdit(false);
+        setTournament(data.tournament);
+      }
+
       setIsConnected(true);
 
       return data.tournament.id;

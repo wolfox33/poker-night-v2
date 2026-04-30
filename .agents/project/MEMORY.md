@@ -84,3 +84,9 @@ const token = url.searchParams.get('token');
 
 - Removidos os antigos níveis 11 (`1.100/2.200`) e 13 (`1.300/2.600`).
 - A estrutura de blinds agora tem 25 níveis e a UI usa `BLINDS_LEVELS.length` em vez de total fixo.
+
+### Retorno do Host pelo Código Público
+
+- Ao entrar por código, o frontend preserva temporariamente `poker_host_token` local e valida em `/state` se ele pertence ao torneio resolvido.
+- Se `/state` retornar `role: host`, o usuário volta como criador; se não, o token local é limpo e a entrada fica como visualizador (`role: none`).
+- Criar outro torneio em paralelo não concede host em torneio alheio, porque o token é comparado com o `hostToken` específico do torneio resolvido pelo código.
