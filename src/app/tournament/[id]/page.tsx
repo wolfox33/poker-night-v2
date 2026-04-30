@@ -367,6 +367,7 @@ export default function TournamentPage() {
 
   const currentBlinds = BLINDS_LEVELS[tournament.timer.currentLevel - 1];
   const nextBlinds = BLINDS_LEVELS[tournament.timer.currentLevel] ?? null;
+  const maxLevel = BLINDS_LEVELS.length;
   const levelDurationSecs = tournament.config.levelDuration * 60;
   const progressPct = Math.max(0, Math.min(100, ((levelDurationSecs - localTime) / levelDurationSecs) * 100));
 
@@ -629,7 +630,7 @@ export default function TournamentPage() {
           <div>
             <div className="text-center mb-4 glass-card">
               <div className="text-sm text-[var(--text-muted)] mb-1 tracking-widest">
-                NÍVEL {tournament.timer.currentLevel} / 27
+                NÍVEL {tournament.timer.currentLevel} / {maxLevel}
               </div>
               {currentBlinds && (
                 <div className="flex justify-center gap-8 mb-2">
@@ -673,7 +674,7 @@ export default function TournamentPage() {
                   if (blinds) {
                     showNotification(`Poker Night - Nível ${nextLevel}`, `Blind: ${blinds.smallBlind}/${blinds.bigBlind}`);
                   }
-                }} disabled={tournament.timer.currentLevel >= 27} className="btn btn-secondary flex-1">→ Próx. Nível</button>
+                }} disabled={tournament.timer.currentLevel >= maxLevel} className="btn btn-secondary flex-1">→ Próx. Nível</button>
                 <button onClick={() => { if (confirm('Tem certeza que deseja reiniciar o timer? Isso voltará para o Nível 1.')) timerAction('reset'); }} className="btn btn-danger">↺</button>
               </div>
             )}
@@ -686,7 +687,7 @@ export default function TournamentPage() {
               </div>
               <div className="glass-card text-center">
                 <div className="text-xs text-[var(--text-muted)] mb-1">Nível Atual</div>
-                <div className="font-bold text-[var(--accent)]">{tournament.timer.currentLevel} / 27</div>
+                <div className="font-bold text-[var(--accent)]">{tournament.timer.currentLevel} / {maxLevel}</div>
               </div>
             </div>
 

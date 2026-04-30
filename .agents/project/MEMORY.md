@@ -79,3 +79,8 @@ const token = url.searchParams.get('token');
 - Criado endpoint `GET /api/keepalive`, protegido por `KEEPALIVE_SECRET`, para escrever `keepalive:lastPing` no Redis.
 - Criado GitHub Actions workflow `.github/workflows/upstash-keepalive.yml` com schedule `0 9 */5 * *` para chamar o endpoint a cada 5 dias.
 - Configurar `KEEPALIVE_SECRET` como Secret na Cloudflare e no GitHub; configurar `KEEPALIVE_URL` como Secret no GitHub com a URL pública da aplicação sem barra final.
+
+### Blinds
+
+- Removidos os antigos níveis 11 (`1.100/2.200`) e 13 (`1.300/2.600`).
+- A estrutura de blinds agora tem 25 níveis e a UI usa `BLINDS_LEVELS.length` em vez de total fixo.

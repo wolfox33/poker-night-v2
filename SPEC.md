@@ -111,7 +111,7 @@ App web PWA para gerenciamento de torneios de poker presenciais. Um jogador cria
 ```typescript
 {
   isRunning: boolean;
-  currentLevel: number;      // 1–27
+  currentLevel: number;      // 1–25
   timeRemaining: number;     // segundos restantes no nível atual
   totalElapsed: number;      // segundos totais decorridos
   startedAt: number | null;  // timestamp de quando foi iniciado/retomado
@@ -322,7 +322,7 @@ data: {"type":"state","data":{...Tournament}}   ← enviado ao conectar
 
 ---
 
-## Níveis de Blinds (27 Níveis)
+## Níveis de Blinds (25 Níveis)
 
 | Nível | SB | BB |
 |---|---|---|
@@ -336,23 +336,21 @@ data: {"type":"state","data":{...Tournament}}   ← enviado ao conectar
 | 8 | 800 | 1.600 |
 | 9 | 900 | 1.800 |
 | 10 | 1.000 | 2.000 |
-| 11 | 1.100 | 2.200 |
-| 12 | 1.200 | 2.400 |
-| 13 | 1.300 | 2.600 |
-| 14 | 1.400 | 2.800 |
-| 15 | 1.500 | 3.000 |
-| 16 | 2.000 | 4.000 |
-| 17 | 2.500 | 5.000 |
-| 18 | 3.000 | 6.000 |
-| 19 | 4.000 | 8.000 |
-| 20 | 5.000 | 10.000 |
-| 21 | 6.000 | 12.000 |
-| 22 | 8.000 | 16.000 |
-| 23 | 10.000 | 20.000 |
-| 24 | 15.000 | 30.000 |
-| 25 | 20.000 | 40.000 |
-| 26 | 25.000 | 50.000 |
-| 27 | 30.000 | 60.000 |
+| 11 | 1.200 | 2.400 |
+| 12 | 1.400 | 2.800 |
+| 13 | 1.500 | 3.000 |
+| 14 | 2.000 | 4.000 |
+| 15 | 2.500 | 5.000 |
+| 16 | 3.000 | 6.000 |
+| 17 | 4.000 | 8.000 |
+| 18 | 5.000 | 10.000 |
+| 19 | 6.000 | 12.000 |
+| 20 | 8.000 | 16.000 |
+| 21 | 10.000 | 20.000 |
+| 22 | 15.000 | 30.000 |
+| 23 | 20.000 | 40.000 |
+| 24 | 25.000 | 50.000 |
+| 25 | 30.000 | 60.000 |
 
 ---
 
